@@ -13,9 +13,9 @@ Ce dépôt fournit une base **simple, locale et robuste** pour :
 
 ## Architecture recommandée
 
-- **Caméra principale** : Panasonic Lumix G7 -> HDMI -> clé ou boîtier de capture -> Raspberry.
-- **Caméra secondaire** : Xiaomi 11T (application caméra IP ou WebRTC) -> source réseau OBS.
-- **Capteurs** : Xiaomi 11T (position, vitesse) vers un fichier JSON local.
+- **Caméra principale** : Panasonic Lumix G7 connecté en HDMI à une clé ou un boîtier de capture, lui-même connecté au Raspberry.
+- **Caméra secondaire** : Xiaomi 11T (application caméra IP ou WebRTC) connecté comme source réseau dans OBS.
+- **Capteurs** : Xiaomi 11T (position, vitesse) enregistrés dans un fichier JSON local.
 - **Direct** : OBS (ou OBS en mode allégé) sur Raspberry, sortie RTMPS/SRT.
 - **Interface locale** : script Python `scripts/interface_nomade.py` sur écran tactile 7 pouces.
 

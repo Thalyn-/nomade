@@ -72,6 +72,8 @@ class ApplicationNomade(tk.Tk):
         self.sources = sources
 
         self.messages_chat: deque[str] = deque(maxlen=5)
+        self._chat_position = 0
+        self._chat_signature: tuple[int, int] | None = None
 
         self._creer_interface()
         self._rafraichir()
@@ -152,10 +154,25 @@ class ApplicationNomade(tk.Tk):
 
     def _lire_chat(self) -> list[str]:
         if not self.fichier_chat.exists():
+            self._chat_position = 0
+            self._chat_signature = None
             return []
         try:
-            lignes = self.fichier_chat.read_text(encoding="utf-8").splitlines()
-            return lignes[-5:]
+            infos = self.fichier_chat.stat()
+            signature = (infos.st_ino, infos.st_mtime_ns)
+
+            if self._chat_signature is None or infos.st_size < self._chat_position:
+                self._chat_position = 0
+
+            with self.fichier_chat.open("r", encoding="utf-8") as fichier:
+                fichier.seek(self._chat_position)
+                nouvelles_lignes = fichier.read().splitlines()
+                self._chat_position = fichier.tell()
+
+            self._chat_signature = signature
+            for ligne in nouvelles_lignes:
+                self.messages_chat.append(ligne)
+            return list(self.messages_chat)
         except Exception:
             return []
 
@@ -177,13 +194,12 @@ class ApplicationNomade(tk.Tk):
         donnees = self._lire_capteurs()
         self.texte_etat.set(self._format_etat(donnees))
 
+        anciens_messages = list(self.messages_chat)
         derniers = self._lire_chat()
-        if derniers != list(self.messages_chat):
-            self.messages_chat.clear()
-            self.messages_chat.extend(derniers)
+        if derniers != anciens_messages:
             self.zone_chat.configure(state="normal")
             self.zone_chat.delete("1.0", tk.END)
-            self.zone_chat.insert(tk.END, "\n".join(self.messages_chat))
+            self.zone_chat.insert(tk.END, "\n".join(derniers))
             self.zone_chat.see(tk.END)
             self.zone_chat.configure(state="disabled")
 
@@ -233,10 +249,9 @@ def main() -> int:
     try:
         controle_obs = ControleOBS(cfg)
     except Exception as exc:
-        print(
-            "Connexion OBS impossible. Vérifiez OBS ouvert, module obs-websocket actif, "
-            f"hôte={args.obs_hote}, port={args.obs_port}, mot de passe OBS_MDP. Détail: {exc}"
-        )
+        print("Connexion OBS impossible. Vérifiez OBS ouvert et module obs-websocket actif.")
+        if os.environ.get("NOMADE_DEBUG", "0") == "1":
+            print(f"Détail debug: {exc}")
         return 1
 
     app = ApplicationNomade(
