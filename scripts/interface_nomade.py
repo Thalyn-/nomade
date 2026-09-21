@@ -163,7 +163,7 @@ class ApplicationNomade(tk.Tk):
 
             if (
                 self._chat_signature is None
-                or signature != self._chat_signature
+                or self._chat_signature[0] != infos.st_ino
                 or infos.st_size < self._chat_position
             ):
                 self._chat_position = 0
