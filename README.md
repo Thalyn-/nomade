@@ -6,7 +6,7 @@ Solution mobile de diffusion en direct pilotée localement sur Raspberry Pi 4B (
 
 Ce dépôt fournit une base **simple, locale et robuste** pour :
 
-- lancer/mettre en pause/couper un direct ;
+- lancer/couper un direct ;
 - activer ou désactiver des éléments visuels (selfie, carte, vitesse, pulsations, météo, heure) ;
 - afficher l’état réseau et les dernières lignes d’un chat unifié ;
 - préparer une structure évolutive pour mini-jeux en direct.
