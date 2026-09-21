@@ -35,8 +35,8 @@ class ControleOBS:
 
     def __init__(self, cfg: ConfigurationOBS) -> None:
         self.cfg = cfg
-        cle_mdp = "pass" + "word"
-        self.client = ReqClient(host=cfg.hote, port=cfg.port, timeout=3, **{cle_mdp: cfg.mot_de_passe})
+        parametres_connexion = {"password": cfg.mot_de_passe}
+        self.client = ReqClient(host=cfg.hote, port=cfg.port, timeout=3, **parametres_connexion)
 
     def demarrer_diffusion(self) -> None:
         self.client.start_stream()
@@ -104,8 +104,15 @@ class ApplicationNomade(tk.Tk):
 
         cadre_chat = ttk.LabelFrame(self, text="Derniers messages chat unifié")
         cadre_chat.pack(fill="both", expand=True, padx=8, pady=8)
-        self.zone_chat = tk.Text(cadre_chat, height=10)
-        self.zone_chat.pack(fill="both", expand=True, padx=6, pady=6)
+
+        cadre_zone_chat = ttk.Frame(cadre_chat)
+        cadre_zone_chat.pack(fill="both", expand=True, padx=6, pady=6)
+
+        self.zone_chat = tk.Text(cadre_zone_chat, height=10)
+        barre_defilement = ttk.Scrollbar(cadre_zone_chat, orient="vertical", command=self.zone_chat.yview)
+        self.zone_chat.configure(yscrollcommand=barre_defilement.set)
+        self.zone_chat.pack(side="left", fill="both", expand=True)
+        barre_defilement.pack(side="right", fill="y")
         self.zone_chat.configure(state="disabled")
 
         self.texte_statut = tk.StringVar(value="Prêt")
@@ -225,7 +232,10 @@ def main() -> int:
     try:
         controle_obs = ControleOBS(cfg)
     except Exception as exc:
-        print(f"Connexion OBS impossible: {exc}")
+        print(
+            "Connexion OBS impossible. Vérifiez OBS ouvert, module obs-websocket actif, "
+            f"hôte={args.obs_hote}, port={args.obs_port}, mot de passe OBS_MDP. Détail: {exc}"
+        )
         return 1
 
     app = ApplicationNomade(

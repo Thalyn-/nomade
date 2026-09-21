@@ -6,6 +6,11 @@ set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+  echo "Ce script doit être exécuté en root."
+  exit 1
+fi
+
 apt-get update
 apt-get install -y \
   python3 \
@@ -14,8 +19,8 @@ apt-get install -y \
   python3-tk \
   obs-studio
 
-# Répertoire local de données capteurs/chat.
-install -d -m 755 /var/lib/nomade
+# Répertoire local de données capteurs/chat (données potentiellement sensibles).
+install -d -m 700 /var/lib/nomade
 
 # Environnement Python isolé pour éviter de polluer le système.
 python3 -m venv /opt/nomade-venv

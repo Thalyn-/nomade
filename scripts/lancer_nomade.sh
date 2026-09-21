@@ -4,7 +4,8 @@ set -euo pipefail
 # Lance l'interface locale de contrôle du direct.
 # OBS doit être ouvert et obs-websocket activé.
 
-REPO_DIR="/home/runner/work/nomade/nomade"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 VENV_BIN="/opt/nomade-venv/bin/python"
 
 if [[ ! -x "$VENV_BIN" ]]; then
