@@ -11,6 +11,9 @@ if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
   exit 1
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 apt-get update
 apt-get install -y \
   python3 \
@@ -25,7 +28,7 @@ install -d -m 700 /var/lib/nomade
 # Environnement Python isolé pour éviter de polluer le système.
 python3 -m venv /opt/nomade-venv
 /opt/nomade-venv/bin/pip install --upgrade pip
-/opt/nomade-venv/bin/pip install "obsws-python>=1.7.0,<2.0.0"
+/opt/nomade-venv/bin/pip install -r "$REPO_DIR/requirements.txt"
 
 echo "Installation terminée."
 echo "Définissez OBS_MDP puis lancez ./scripts/lancer_nomade.sh"

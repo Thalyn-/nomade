@@ -184,6 +184,7 @@ class ApplicationNomade(tk.Tk):
             self.zone_chat.configure(state="normal")
             self.zone_chat.delete("1.0", tk.END)
             self.zone_chat.insert(tk.END, "\n".join(self.messages_chat))
+            self.zone_chat.see(tk.END)
             self.zone_chat.configure(state="disabled")
 
         self.after(1000, self._rafraichir)
