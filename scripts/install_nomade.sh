@@ -26,8 +26,9 @@ apt-get install -y \
 install -d -m 700 /var/lib/nomade
 
 # Environnement Python isolé pour éviter de polluer le système.
-rm -rf /opt/nomade-venv
-python3 -m venv /opt/nomade-venv
+if [[ ! -d /opt/nomade-venv ]]; then
+  python3 -m venv /opt/nomade-venv
+fi
 /opt/nomade-venv/bin/pip install --upgrade pip
 /opt/nomade-venv/bin/pip install -r "$REPO_DIR/requirements.txt"
 

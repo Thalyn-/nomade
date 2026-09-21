@@ -161,7 +161,11 @@ class ApplicationNomade(tk.Tk):
             infos = self.fichier_chat.stat()
             signature = (infos.st_ino, infos.st_mtime_ns)
 
-            if self._chat_signature is None or infos.st_size < self._chat_position:
+            if (
+                self._chat_signature is None
+                or signature != self._chat_signature
+                or infos.st_size < self._chat_position
+            ):
                 self._chat_position = 0
 
             with self.fichier_chat.open("r", encoding="utf-8") as fichier:
