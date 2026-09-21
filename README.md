@@ -28,7 +28,7 @@ Ce dépôt fournit une base **simple, locale et robuste** pour :
 ## Installation (DietPi)
 
 ```bash
-cd /home/runner/work/nomade/nomade
+cd /chemin/vers/le/depot/nomade
 chmod +x scripts/install_nomade.sh scripts/lancer_nomade.sh
 ./scripts/install_nomade.sh
 ```

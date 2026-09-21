@@ -25,7 +25,7 @@ install -d -m 700 /var/lib/nomade
 # Environnement Python isolé pour éviter de polluer le système.
 python3 -m venv /opt/nomade-venv
 /opt/nomade-venv/bin/pip install --upgrade pip
-/opt/nomade-venv/bin/pip install obsws-python
+/opt/nomade-venv/bin/pip install "obsws-python>=1.7.0,<2.0.0"
 
 echo "Installation terminée."
 echo "Définissez OBS_MDP puis lancez ./scripts/lancer_nomade.sh"
