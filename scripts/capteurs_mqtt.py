@@ -11,6 +11,7 @@ from typing import Any
 
 import paho.mqtt.client as mqtt
 
+from nomade_config import ErreurConfiguration, charger_configuration
 from nomade_utils import ecrire_json_atomique, valider_charge_capteurs
 
 
@@ -18,20 +19,19 @@ def analyser_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Réception des capteurs Nomade via MQTT local, idéalement sur la liaison Bluetooth.",
     )
-    parser.add_argument("--mqtt-hote", default=os.environ.get("NOMADE_MQTT_HOTE", "127.0.0.1"))
-    parser.add_argument("--mqtt-port", type=int, default=int(os.environ.get("NOMADE_MQTT_PORT", "1883")))
-    parser.add_argument("--mqtt-sujet", default=os.environ.get("NOMADE_MQTT_SUJET", "nomade/capteurs"))
+    parser.add_argument("--config", help="Chemin d'un fichier TOML principal alternatif.")
+    parser.add_argument("--local-config", help="Chemin d'une surcharge locale alternative.")
+    parser.add_argument("--mqtt-hote")
+    parser.add_argument("--mqtt-port", type=int)
+    parser.add_argument("--mqtt-sujet")
     parser.add_argument(
         "--mqtt-client-id",
-        default=os.environ.get("NOMADE_MQTT_CLIENT_ID", "nomade-capteurs"),
+        help="Identifiant MQTT alternatif.",
     )
     parser.add_argument("--mqtt-utilisateur", default=os.environ.get("NOMADE_MQTT_UTILISATEUR"))
     parser.add_argument("--mqtt-mot-de-passe", default=os.environ.get("NOMADE_MQTT_MOT_DE_PASSE"))
-    parser.add_argument("--mqtt-keepalive", type=int, default=int(os.environ.get("NOMADE_MQTT_KEEPALIVE", "30")))
-    parser.add_argument(
-        "--fichier-sortie",
-        default=os.environ.get("NOMADE_FICHIER_CAPTEURS", "/var/lib/nomade/capteurs.json"),
-    )
+    parser.add_argument("--mqtt-keepalive", type=int)
+    parser.add_argument("--fichier-sortie")
     return parser.parse_args()
 
 
@@ -99,13 +99,23 @@ class ServiceCapteursMQTT:
 
 def main() -> int:
     args = analyser_arguments()
+    try:
+        configuration = charger_configuration(
+            repertoire_depot=Path(__file__).resolve().parent.parent,
+            fichier_config=Path(args.config) if args.config else None,
+            fichier_local=Path(args.local_config) if args.local_config else None,
+        )
+    except ErreurConfiguration as exc:
+        print(exc)
+        return 1
+
     service = ServiceCapteursMQTT(
-        hote=args.mqtt_hote,
-        port=args.mqtt_port,
-        sujet=args.mqtt_sujet,
-        keepalive=args.mqtt_keepalive,
-        fichier_sortie=Path(args.fichier_sortie),
-        client_id=args.mqtt_client_id,
+        hote=args.mqtt_hote or os.environ.get("NOMADE_MQTT_HOTE") or configuration["mqtt"]["host"],
+        port=args.mqtt_port or int(os.environ.get("NOMADE_MQTT_PORT", configuration["mqtt"]["port"])),
+        sujet=args.mqtt_sujet or os.environ.get("NOMADE_MQTT_SUJET") or configuration["mqtt"]["topic"],
+        keepalive=args.mqtt_keepalive or int(os.environ.get("NOMADE_MQTT_KEEPALIVE", configuration["mqtt"]["keepalive"])),
+        fichier_sortie=Path(args.fichier_sortie or os.environ.get("NOMADE_FICHIER_CAPTEURS") or configuration["paths"]["capteurs_file"]),
+        client_id=args.mqtt_client_id or os.environ.get("NOMADE_MQTT_CLIENT_ID") or configuration["mqtt"]["client_id"],
         utilisateur=args.mqtt_utilisateur,
         mot_de_passe=args.mqtt_mot_de_passe,
     )

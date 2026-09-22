@@ -6,7 +6,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-VENV_BIN="/opt/nomade-venv/bin/python"
+
+config_get() {
+  python3 "$REPO_DIR/scripts/nomade_config.py" --repository "$REPO_DIR" --get "$1"
+}
+
+VENV_DIR="${NOMADE_VENV_DIR:-$(config_get paths.python_venv)}"
+VENV_BIN="$VENV_DIR/bin/python"
 
 if [[ ! -x "$VENV_BIN" ]]; then
   echo "Environnement Python introuvable: $VENV_BIN"

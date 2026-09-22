@@ -24,6 +24,14 @@ apt-get install -y \
   python3-tk \
   wget
 
+config_get() {
+  python3 "$REPO_DIR/scripts/nomade_config.py" --repository "$REPO_DIR" --get "$1"
+}
+
+VENV_DIR="${NOMADE_VENV_DIR:-$(config_get paths.python_venv)}"
+DATA_DIR="${NOMADE_DATA_DIR:-$(config_get paths.data_dir)}"
+LOG_DIR="${NOMADE_LOG_DIR:-$(config_get paths.log_dir)}"
+
 # OBS Studio n'est volontairement pas installé via "apt install obs-studio" :
 # le paquet officiel ARM64 de Debian Bookworm ne contient pas la Source
 # Navigateur (Browser Source), car l'intégration Chromium (CEF) y est
@@ -32,17 +40,18 @@ apt-get install -y \
 # incluant la Source Navigateur.
 "$SCRIPT_DIR/installer_obs_navigateur.sh"
 
-# Répertoire local de données capteurs/chat (données potentiellement sensibles).
-install -d -m 700 /var/lib/nomade
+# Répertoires locaux de données et journaux (données potentiellement sensibles).
+install -d -m 700 "$DATA_DIR" "$LOG_DIR"
 
 # Environnement Python isolé pour éviter de polluer le système.
-if [[ ! -d /opt/nomade-venv ]]; then
-  python3 -m venv /opt/nomade-venv
+if [[ ! -d "$VENV_DIR" ]]; then
+  python3 -m venv "$VENV_DIR"
 fi
-/opt/nomade-venv/bin/pip install --upgrade pip
-/opt/nomade-venv/bin/pip install -r "$REPO_DIR/requirements.txt"
+"$VENV_DIR/bin/pip" install --upgrade pip
+"$VENV_DIR/bin/pip" install -r "$REPO_DIR/requirements.txt"
 
 echo "Installation terminée."
+echo "Configuration locale : copiez config/nomade.local.toml.example vers config/nomade.local.toml si besoin."
 echo "Préparation OBS complète : ./scripts/lancer_obs_preparation.sh"
 echo "Direct OBS allégé : ./scripts/lancer_obs_direct.sh"
 echo "Interface locale : définissez OBS_MDP puis lancez ./scripts/lancer_nomade.sh"

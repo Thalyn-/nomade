@@ -1,0 +1,22 @@
+# Exemple de surcharge locale. Ce fichier peut être copié vers
+# config/nomade.local.toml puis adapté sans jamais versionner d'URL privée ni
+# de mot de passe.
+
+[paths]
+# Exemple de migration d'une installation existante hors /opt.
+# python_venv = "/root/nomade/myvenv"
+
+[mqtt]
+# Adresse du courtier si Mosquitto écoute sur l'interface Bluetooth plutôt que
+# sur 127.0.0.1.
+# host = "192.168.44.1"
+network_interface = "bnep0"
+bluetooth_device_name = "Xiaomi 11T"
+
+[chat]
+service = "none"
+source_name = "Chat multicanal"
+enabled_by_default = false
+# velora_url = "https://velora.tv/overlay/chat-multi/identifiant-exemple"
+# botrix_url = "https://botrix.live/widgets/chat/?bid=identifiant-exemple"
+# custom_url = "https://exemple.invalid/chat"
