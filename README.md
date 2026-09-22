@@ -1,6 +1,6 @@
 # nomade
 
-Solution mobile de diffusion en direct pilotée localement sur Raspberry Pi 4B (DietPi Bookworm), avec caméra HDMI principale, caméra selfie du téléphone, capteurs (position, vitesse), et comma[...]
+Solution mobile de diffusion en direct pilotée localement sur Raspberry Pi 4B (DietPi Bookworm), avec caméra HDMI principale, caméra selfie du téléphone, capteurs (position, vitesse), et commandes de scènes/éléments visuels.
 
 ## Objectif
 
