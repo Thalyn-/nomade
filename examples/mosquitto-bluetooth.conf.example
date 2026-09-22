@@ -1,0 +1,8 @@
+# Exemple minimal à adapter avant utilisation.
+# Remplacez 192.168.44.1 par l'adresse IP réellement portée
+# par l'interface Bluetooth/PAN du Raspberry (par ex. bnep0).
+
+per_listener_settings true
+allow_anonymous true
+listener 1883 192.168.44.1
+persistence false

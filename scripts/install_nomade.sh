@@ -16,6 +16,8 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 apt-get update
 apt-get install -y \
+  mosquitto \
+  mosquitto-clients \
   python3 \
   python3-venv \
   python3-pip \
@@ -41,5 +43,7 @@ fi
 /opt/nomade-venv/bin/pip install -r "$REPO_DIR/requirements.txt"
 
 echo "Installation terminée."
-echo "Pour lancer OBS avec l'accélération graphique correcte : ./scripts/lancer_obs.sh"
-echo "Définissez OBS_MDP puis lancez ./scripts/lancer_nomade.sh"
+echo "Préparation OBS complète : ./scripts/lancer_obs_preparation.sh"
+echo "Direct OBS allégé : ./scripts/lancer_obs_direct.sh"
+echo "Interface locale : définissez OBS_MDP puis lancez ./scripts/lancer_nomade.sh"
+echo "Ingestion capteurs MQTT : ./scripts/lancer_capteurs_mqtt.sh"

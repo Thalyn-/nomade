@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Lance OBS Studio avec la surcharge OpenGL nécessaire sur le GPU du
-# Raspberry Pi 4B, faute de quoi OBS peut ne pas s'initialiser correctement.
+# Compatibilité historique : lance OBS Studio complet pour la préparation
+# via le nouveau script dédié.
 
-exec env MESA_GL_VERSION_OVERRIDE=3.3 obs
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$SCRIPT_DIR/lancer_obs_preparation.sh" "$@"

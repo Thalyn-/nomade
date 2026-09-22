@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""Ingestion robuste des capteurs Nomade via MQTT."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+from typing import Any
+
+import paho.mqtt.client as mqtt
+
+from nomade_utils import ecrire_json_atomique, valider_charge_capteurs
+
+
+def analyser_arguments() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Réception des capteurs Nomade via MQTT local, idéalement sur la liaison Bluetooth.",
+    )
+    parser.add_argument("--mqtt-hote", default=os.environ.get("NOMADE_MQTT_HOTE", "127.0.0.1"))
+    parser.add_argument("--mqtt-port", type=int, default=int(os.environ.get("NOMADE_MQTT_PORT", "1883")))
+    parser.add_argument("--mqtt-sujet", default=os.environ.get("NOMADE_MQTT_SUJET", "nomade/capteurs"))
+    parser.add_argument(
+        "--mqtt-client-id",
+        default=os.environ.get("NOMADE_MQTT_CLIENT_ID", "nomade-capteurs"),
+    )
+    parser.add_argument("--mqtt-utilisateur", default=os.environ.get("NOMADE_MQTT_UTILISATEUR"))
+    parser.add_argument("--mqtt-mot-de-passe", default=os.environ.get("NOMADE_MQTT_MOT_DE_PASSE"))
+    parser.add_argument("--mqtt-keepalive", type=int, default=int(os.environ.get("NOMADE_MQTT_KEEPALIVE", "30")))
+    parser.add_argument(
+        "--fichier-sortie",
+        default=os.environ.get("NOMADE_FICHIER_CAPTEURS", "/var/lib/nomade/capteurs.json"),
+    )
+    return parser.parse_args()
+
+
+def creer_client_mqtt(client_id: str) -> mqtt.Client:
+    if hasattr(mqtt, "CallbackAPIVersion"):
+        return mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION1, client_id=client_id)
+    return mqtt.Client(client_id=client_id)
+
+
+class ServiceCapteursMQTT:
+    """Abonné MQTT robuste : valide et persiste les capteurs sans casser le direct."""
+
+    def __init__(
+        self,
+        hote: str,
+        port: int,
+        sujet: str,
+        keepalive: int,
+        fichier_sortie: Path,
+        client_id: str,
+        utilisateur: str | None = None,
+        mot_de_passe: str | None = None,
+    ) -> None:
+        self.hote = hote
+        self.port = port
+        self.sujet = sujet
+        self.keepalive = keepalive
+        self.fichier_sortie = fichier_sortie
+        self.client = creer_client_mqtt(client_id)
+        if utilisateur:
+            self.client.username_pw_set(utilisateur, mot_de_passe)
+        self.client.on_connect = self._sur_connexion
+        self.client.on_disconnect = self._sur_deconnexion
+        self.client.on_message = self._sur_message
+        self.client.reconnect_delay_set(min_delay=1, max_delay=30)
+
+    def executer(self) -> int:
+        print(
+            f"Connexion MQTT vers {self.hote}:{self.port}, sujet '{self.sujet}', sortie '{self.fichier_sortie}'.",
+        )
+        self.client.connect_async(self.hote, self.port, keepalive=self.keepalive)
+        self.client.loop_forever(retry_first_connection=True)
+        return 0
+
+    def _sur_connexion(self, client: mqtt.Client, _userdata: Any, _flags: Any, code_retour: int) -> None:
+        if code_retour != 0:
+            print(f"Connexion MQTT refusée (code {code_retour}). Nouvelle tentative automatique.")
+            return
+
+        client.subscribe(self.sujet)
+        print(f"Abonnement MQTT actif sur '{self.sujet}'.")
+
+    def _sur_deconnexion(self, _client: mqtt.Client, _userdata: Any, code_retour: int) -> None:
+        if code_retour != 0:
+            print("Liaison MQTT interrompue. Reconnexion automatique en cours.")
+
+    def _sur_message(self, _client: mqtt.Client, _userdata: Any, message: mqtt.MQTTMessage) -> None:
+        try:
+            donnees = json.loads(message.payload.decode("utf-8"))
+            charge = valider_charge_capteurs(donnees)
+            ecrire_json_atomique(self.fichier_sortie, charge)
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+            print(f"Message capteurs ignoré : {exc}")
+
+
+def main() -> int:
+    args = analyser_arguments()
+    service = ServiceCapteursMQTT(
+        hote=args.mqtt_hote,
+        port=args.mqtt_port,
+        sujet=args.mqtt_sujet,
+        keepalive=args.mqtt_keepalive,
+        fichier_sortie=Path(args.fichier_sortie),
+        client_id=args.mqtt_client_id,
+        utilisateur=args.mqtt_utilisateur,
+        mot_de_passe=args.mqtt_mot_de_passe,
+    )
+    return service.executer()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
