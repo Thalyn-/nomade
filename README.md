@@ -1,6 +1,6 @@
 # nomade
 
-Solution mobile de diffusion en direct pilotée localement sur Raspberry Pi 4B (DietPi Bookworm), avec caméra HDMI principale, caméra selfie du téléphone, capteurs (position, vitesse), et commandes de scènes/éléments visuels.
+Solution mobile de diffusion en direct pilotée localement sur Raspberry Pi 4B (DietPi Bookworm), avec caméra HDMI principale, caméra selfie du téléphone, capteurs (position, vitesse), et comma[...]
 
 ## Objectif
 
@@ -22,6 +22,8 @@ Ce dépôt fournit une base **simple, locale et robuste** pour :
 ## Fichiers ajoutés
 
 - `scripts/install_nomade.sh` : installation des dépendances principales sur DietPi.
+- `scripts/installer_obs_navigateur.sh` : installation d'OBS Studio avec la Source Navigateur (Browser Source) fonctionnelle sur Raspberry Pi 4.
+- `scripts/lancer_obs.sh` : lancement d'OBS avec l'accélération graphique adaptée au Raspberry Pi 4.
 - `scripts/lancer_nomade.sh` : lancement de l’interface locale.
 - `scripts/interface_nomade.py` : interface graphique locale de pilotage OBS + état capteurs/chat.
 
@@ -29,9 +31,40 @@ Ce dépôt fournit une base **simple, locale et robuste** pour :
 
 ```bash
 cd /chemin/vers/le/depot/nomade
-chmod +x scripts/install_nomade.sh scripts/lancer_nomade.sh
+chmod +x scripts/install_nomade.sh scripts/installer_obs_navigateur.sh scripts/lancer_obs.sh scripts/lancer_nomade.sh
 ./scripts/install_nomade.sh
 ```
+
+Le script `install_nomade.sh` installe automatiquement OBS avec la Source Navigateur via `installer_obs_navigateur.sh` (voir section dédiée ci-dessous).
+
+## Installation d'OBS avec la Source Navigateur (Browser Source)
+
+### Le problème d'origine
+
+Par défaut, le paquet officiel fourni par `apt install obs-studio` sur l'architecture ARM64 de Debian n'inclut **pas** le plugin navigateur (Source Navigateur / Browser Source). L'intégration de Chromium (CEF) y est désactivée par les mainteneurs, car jugée trop lourde ou trop complexe à compiler pour cette cible.
+
+De plus, le GPU du Raspberry Pi 4 nécessite de simuler une version spécifique d'OpenGL pour lancer OBS correctement.
+
+### La solution retenue
+
+Le dépôt fournit deux scripts dédiés :
+
+- `scripts/installer_obs_navigateur.sh` : supprime une éventuelle ancienne installation d'OBS, puis télécharge et installe un paquet `.deb` pré-compilé pour Debian Bookworm ARM64, maintenu par la communauté *Pi-Apps*, qui intègre nativement la Source Navigateur optimisée pour le processeur du Raspberry Pi.
+- `scripts/lancer_obs.sh` : lance OBS avec la surcharge `MESA_GL_VERSION_OVERRIDE=3.3`, nécessaire à l'initialisation correcte d'OBS sur le GPU du Raspberry Pi 4.
+
+Ce script est appelé automatiquement par `install_nomade.sh`, mais peut aussi être exécuté seul :
+
+```bash
+sudo ./scripts/installer_obs_navigateur.sh
+```
+
+Pour démarrer OBS ensuite (avec la Source Navigateur pleinement fonctionnelle) :
+
+```bash
+./scripts/lancer_obs.sh
+```
+
+> Remarque : ce paquet provient d'un dépôt communautaire tiers (Pi-Apps) et non des dépôts officiels Debian/DietPi. C'est un choix assumé pour disposer d'une Source Navigateur fonctionnelle sur Raspberry Pi 4 ; à réévaluer si Debian propose un jour un paquet officiel équivalent.
 
 ## Utilisation
 
@@ -80,3 +113,4 @@ Exemple `capteurs.json` :
 - La récupération directe des pulsations de la montre Xiaomi Watch 5 Lite peut être limitée selon le protocole exposé.
 - Le script lit des fichiers locaux pour rester stable hors ligne ; l’ingestion réseau (Traccar/SensorCast/Botrix) peut être ajoutée ensuite.
 - Les mini-jeux sont prévus comme extension (zone dédiée dans l’interface).
+- L'installation d'OBS avec la Source Navigateur repose sur un paquet tiers (Pi-Apps) et non sur les dépôts officiels Debian/DietPi (voir section dédiée ci-dessus).
