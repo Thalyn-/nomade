@@ -20,7 +20,15 @@ apt-get install -y \
   python3-venv \
   python3-pip \
   python3-tk \
-  obs-studio
+  wget
+
+# OBS Studio n'est volontairement pas installé via "apt install obs-studio" :
+# le paquet officiel ARM64 de Debian Bookworm ne contient pas la Source
+# Navigateur (Browser Source), car l'intégration Chromium (CEF) y est
+# désactivée par les mainteneurs. Voir scripts/installer_obs_navigateur.sh
+# et la section dédiée du README pour l'installation d'un paquet OBS
+# incluant la Source Navigateur.
+"$SCRIPT_DIR/installer_obs_navigateur.sh"
 
 # Répertoire local de données capteurs/chat (données potentiellement sensibles).
 install -d -m 700 /var/lib/nomade
@@ -33,4 +41,5 @@ fi
 /opt/nomade-venv/bin/pip install -r "$REPO_DIR/requirements.txt"
 
 echo "Installation terminée."
+echo "Pour lancer OBS avec l'accélération graphique correcte : ./scripts/lancer_obs.sh"
 echo "Définissez OBS_MDP puis lancez ./scripts/lancer_nomade.sh"
