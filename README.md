@@ -26,6 +26,10 @@ Ce dépôt fournit une base **simple, locale, robuste et traduisible** pour :
   - démarre l’interface Python ;
   - démarre aussi OBS direct allégé si OBS n’est pas déjà lancé ;
   - attend la disponibilité d’`obs-websocket` sur `127.0.0.1`.
+- **Configuration centralisée** : `config/nomade.toml` puis `config/nomade.local.toml`
+  - valeurs par défaut suivies dans Git ;
+  - surcharge locale ignorée par Git ;
+  - validation légère au démarrage et diagnostic via `scripts/nomade_config.py`.
 - **Capteurs** : `scripts/lancer_capteurs_mqtt.sh` puis `scripts/capteurs_mqtt.py`
   - abonnement MQTT local ;
   - validation minimale des messages JSON ;
@@ -75,6 +79,54 @@ Cette version ne prétend pas fournir un « OBS headless » complet, car OBS Stu
 - Il ne faut **pas** exposer `obs-websocket` sur `0.0.0.0`, sur l’interface 5G, ni sur une interface de tethering.
 - Le transport des capteurs du téléphone ne doit pas être confondu avec le contrôle OBS : ce sont deux chemins distincts.
 
+## Configuration centralisée
+
+Nomade privilégie maintenant **un fichier de configuration TOML unique** plutôt que des modifications réparties dans plusieurs scripts.
+
+- configuration suivie : `config/nomade.toml`
+- modèle local : `config/nomade.local.toml.example`
+- surcharge locale ignorée par Git : `config/nomade.local.toml`
+
+Mise en route :
+
+```bash
+cp config/nomade.local.toml.example config/nomade.local.toml
+python3 scripts/nomade_config.py --diagnostic
+```
+
+La configuration couvre notamment :
+
+- la langue de l’interface ;
+- les adresses et ports OBS/MQTT ;
+- l’interface réseau capteurs (`bnep0` par défaut) et les informations Bluetooth utiles ;
+- les scènes, profils et sources OBS ;
+- le service de chat multicanal et la source Navigateur OBS associée ;
+- quelques préférences d’affichage et fonctions activables ;
+- les emplacements du dépôt, du venv Python, des données et des journaux.
+
+### À propos de `/opt/nomade-venv`
+
+Le chemin par défaut du venv reste `/opt/nomade-venv`. C’est un **choix d’organisation** classique pour une application tierce sous Debian/DietPi, pas un gain de performances. Le dépôt évite ainsi d’encourager une installation de l’application sous `/root`.
+
+Si une installation existante a déjà été préparée sous `/root/nomade`, elle peut être conservée en surchargeant localement :
+
+```toml
+[paths]
+python_venv = "/root/nomade/myvenv"
+```
+
+Cette surcharge permet une migration progressive sans casser l’installation actuelle.
+
+## Interface locale : Tkinter conservé
+
+L’interface principale reste **Python/Tkinter**. Ce choix est volontaire pour un Raspberry Pi 4B en direct :
+
+- pas de serveur web supplémentaire à maintenir ;
+- pas de navigateur obligatoire à ouvrir pendant le live ;
+- moins de RAM et de moteur de rendu qu’une page Firefox/Chromium dédiée.
+
+Une interface web locale pourrait être étudiée plus tard comme extension facultative, mais elle n’est **pas** implémentée dans cette évolution.
+
 ## Installation (DietPi Bookworm)
 
 ```bash
@@ -82,6 +134,7 @@ cd /chemin/vers/le/depot/nomade
 chmod +x \
   scripts/install_nomade.sh \
   scripts/installer_obs_navigateur.sh \
+  scripts/nomade_config.py \
   scripts/lancer_obs.sh \
   scripts/lancer_obs_preparation.sh \
   scripts/lancer_obs_direct.sh \
@@ -96,7 +149,7 @@ Le script installe notamment :
 - les dépendances Python du dépôt ;
 - `mosquitto` et `mosquitto-clients` pour un courtier MQTT local ;
 - OBS Studio avec Source Navigateur via le paquet communautaire Pi-Apps ;
-- le répertoire `/var/lib/nomade`.
+- les répertoires de données et journaux définis dans `config/nomade.toml`.
 
 ## Installation d’OBS avec Source Navigateur
 
@@ -126,9 +179,13 @@ Comportement :
 Variables utiles :
 
 - `OBS_MDP` : mot de passe `obs-websocket`
-- `NOMADE_AUTOSTART_OBS=0` : ne pas démarrer OBS automatiquement
-- `NOMADE_OBS_ATTENTE=45` : attendre plus longtemps la disponibilité d’OBS
 - `NOMADE_LANGUE=fr` ou `NOMADE_LANGUE=en`
+
+Pour diagnostiquer la configuration réellement chargée :
+
+```bash
+python3 scripts/nomade_config.py --diagnostic
+```
 
 ## Internationalisation
 
@@ -144,6 +201,8 @@ NOMADE_LANGUE=en ./scripts/lancer_nomade.sh
 ```
 
 Les **noms de scènes**, **noms de sources** et **messages d’erreur techniques détaillés** restent configurables et ne sont pas traduits automatiquement.
+
+Le français reste la langue par défaut des textes destinés à l’utilisateur.
 
 Pour ajouter une autre langue :
 
@@ -199,7 +258,7 @@ Cette version **ne prétend pas** que SensorCast, Bluetooth PAN, BNEP ou Mosquit
 
 Variables ou options disponibles :
 
-- `NOMADE_MQTT_HOTE`
+- `NOMADE_MQTT_HOTE` (ou `config/nomade.local.toml`)
 - `NOMADE_MQTT_PORT`
 - `NOMADE_MQTT_SUJET`
 - `NOMADE_MQTT_CLIENT_ID`
@@ -225,6 +284,45 @@ Principe recommandé :
 
 - écouter **uniquement** sur l’adresse IP de l’interface Bluetooth (par exemple `bnep0`) ;
 - ne pas écouter sur l’interface 5G ni sur toutes les interfaces.
+
+## Chat multicanal via Source Navigateur OBS
+
+Nomade ne réimplémente pas le chat dans Python. Le dépôt réutilise la **Source Navigateur OBS** déjà requise pour afficher une page de discussion multicanal distante.
+
+Services prévus dans la configuration :
+
+- `none`
+- `velora`
+- `botrix`
+- `custom`
+
+Exemple de surcharge locale :
+
+```toml
+[chat]
+service = "velora"
+source_name = "Chat multicanal"
+enabled_by_default = false
+velora_url = "https://velora.tv/overlay/chat-multi/identifiant-exemple"
+```
+
+Points importants :
+
+- ne versionnez jamais vos URL personnelles Velora/Botrix ;
+- l’interface Tkinter peut activer/désactiver la source OBS correspondante ;
+- si `sync_chat_browser_source = true`, Nomade met à jour l’URL de la source Navigateur au démarrage ;
+- une URL distante reste une dépendance réseau supplémentaire : vérifiez toujours la confiance accordée au service tiers ;
+- une panne du service de chat ne doit pas empêcher le contrôle local OBS ni l’ingestion MQTT/Bluetooth.
+
+## Diffusion multi-plateforme : préparation seulement
+
+Cette évolution **n’automatise pas** encore le multistream complet, Restream ni la gestion de clés de diffusion.
+
+La section `[streaming]` du TOML sert seulement à **préparer des destinations nommées** pour une évolution future, sans secrets. Pour l’instant :
+
+- préparez vos profils et destinations dans `OBS-Preparation` ;
+- choisissez ensuite le bon profil OBS pour le direct ;
+- ne stockez ni clé de diffusion ni URL privée dans le dépôt.
 
 ## Données locales
 
@@ -265,6 +363,9 @@ Vérifications prévues avant demande de fusion :
 - **Les capteurs n’arrivent pas**
   Vérifier d’abord la liaison Bluetooth/PAN, puis le courtier MQTT local, puis le sujet réellement publié par SensorCast.
 
+- **Je veux vérifier ma configuration sans lancer le direct**
+  Exécuter `python3 scripts/nomade_config.py --diagnostic` puis corriger `config/nomade.local.toml` si nécessaire.
+
 - **Le direct 5G se coupe quand SensorCast tourne**
   Revenir à une topologie où MQTT ne passe pas par le tethering Wi-Fi ou USB, mais par une liaison Bluetooth réellement séparée.
 
@@ -273,4 +374,5 @@ Vérifications prévues avant demande de fusion :
 - pas de vrai mode headless OBS dans ce dépôt ;
 - la configuration exacte de SensorCast et du profil réseau Bluetooth dépend du matériel et n’est donc pas imposée silencieusement ;
 - la récupération directe des pulsations de certains objets connectés peut rester limitée selon leurs protocoles ;
-- l’installation OBS repose toujours sur un paquet communautaire Pi-Apps pour conserver la Source Navigateur.
+- l’installation OBS repose toujours sur un paquet communautaire Pi-Apps pour conserver la Source Navigateur ;
+- le multistream complet reste volontairement reporté à une évolution séparée.

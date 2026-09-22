@@ -1,0 +1,75 @@
+# Configuration globale de Nomade.
+# Copiez config/nomade.local.toml.example vers config/nomade.local.toml
+# pour vos surcharges locales (URL de chat, interface Bluetooth, chemin de
+# venv non standard, etc.). Ce fichier suivi par Git reste volontairement
+# sans secret.
+
+[general]
+language = "fr"
+
+[paths]
+# Laissez vide pour utiliser automatiquement le dépôt courant.
+repository = ""
+python_venv = "/opt/nomade-venv"
+data_dir = "/var/lib/nomade"
+log_dir = "/var/log/nomade"
+
+[obs]
+host = "127.0.0.1"
+port = 4455
+wait_seconds = 30
+collection = ""
+scene = "Scene principale"
+profile_preparation = "Nomade preparation"
+profile_direct = "Nomade direct fixe"
+source_selfie = "Selfie"
+source_carte = "Carte"
+source_vitesse = "Vitesse"
+source_pulsations = "Pulsations"
+source_meteo = "Meteo"
+source_heure = "Heure"
+
+[mqtt]
+host = "127.0.0.1"
+port = 1883
+topic = "nomade/capteurs"
+client_id = "nomade-capteurs"
+keepalive = 30
+network_interface = "bnep0"
+bluetooth_device_name = ""
+bluetooth_device_address = ""
+
+[chat]
+service = "none"
+source_name = "Chat multicanal"
+enabled_by_default = false
+velora_url = ""
+botrix_url = ""
+custom_url = ""
+
+[display]
+window_geometry = "1024x600"
+show_chat_panel = true
+
+[features]
+autostart_obs = true
+sync_chat_browser_source = true
+autostart_stream_on_launch = false
+
+[streaming]
+# Préparation pour une évolution future : Nomade ne modifie pas encore les
+# destinations OBS ni les clés de diffusion.
+active_destination = ""
+notes = "Préparez OBS dans OBS-Preparation ; ne stockez aucune clé secrète ici."
+
+[[streaming.destinations]]
+name = "twitch"
+service = "twitch"
+obs_profile = "Nomade direct fixe"
+enabled = false
+
+[[streaming.destinations]]
+name = "kick"
+service = "kick"
+obs_profile = "Nomade direct fixe"
+enabled = false

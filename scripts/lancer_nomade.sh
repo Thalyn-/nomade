@@ -6,9 +6,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-VENV_BIN="/opt/nomade-venv/bin/python"
-AUTOSTART_OBS="${NOMADE_AUTOSTART_OBS:-1}"
-LOG_OBS_DIRECT="/tmp/nomade-obs-direct.log"
+
+config_get() {
+  python3 "$REPO_DIR/scripts/nomade_config.py" --repository "$REPO_DIR" --get "$1"
+}
+
+VENV_DIR="${NOMADE_VENV_DIR:-$(config_get paths.python_venv)}"
+VENV_BIN="$VENV_DIR/bin/python"
+AUTOSTART_OBS="${NOMADE_AUTOSTART_OBS:-$(config_get features.autostart_obs)}"
+LOG_OBS_DIRECT="${NOMADE_LOG_OBS_DIRECT:-$(config_get paths.obs_direct_log)}"
 
 if [[ ! -x "$VENV_BIN" ]]; then
   echo "Environnement Python introuvable: $VENV_BIN"
@@ -16,8 +22,9 @@ if [[ ! -x "$VENV_BIN" ]]; then
   exit 1
 fi
 
-if [[ "$AUTOSTART_OBS" == "1" ]] && ! pgrep -x obs >/dev/null 2>&1; then
+if [[ "$AUTOSTART_OBS" =~ ^(1|true|True)$ ]] && ! pgrep -x obs >/dev/null 2>&1; then
+  mkdir -p "$(dirname "$LOG_OBS_DIRECT")"
   nohup "$SCRIPT_DIR/lancer_obs_direct.sh" >"$LOG_OBS_DIRECT" 2>&1 &
 fi
 
-exec "$VENV_BIN" "$REPO_DIR/scripts/interface_nomade.py" --obs-hote 127.0.0.1 "$@"
+exec "$VENV_BIN" "$REPO_DIR/scripts/interface_nomade.py" "$@"
