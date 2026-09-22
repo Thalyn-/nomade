@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 import os
 from collections import deque
 from dataclasses import dataclass
@@ -20,6 +21,7 @@ from tkinter import ttk
 from typing import Any
 
 from obsws_python import ReqClient
+from nomade_utils import LANGUE_PAR_DEFAUT, charger_traductions, est_hote_obs_local
 
 
 @dataclass
@@ -60,9 +62,18 @@ class ControleOBS:
 class ApplicationNomade(tk.Tk):
     """Fenêtre principale de contrôle local."""
 
-    def __init__(self, controle_obs: ControleOBS, fichier_capteurs: Path, fichier_chat: Path, scene: str, sources: dict[str, str]) -> None:
+    def __init__(
+        self,
+        controle_obs: ControleOBS,
+        fichier_capteurs: Path,
+        fichier_chat: Path,
+        scene: str,
+        sources: dict[str, str],
+        textes: dict[str, str],
+    ) -> None:
         super().__init__()
-        self.title("Nomade - Contrôle du direct")
+        self.textes = textes
+        self.title(self._texte("app_title"))
         self.geometry("1024x600")
 
         self.controle_obs = controle_obs
@@ -79,13 +90,13 @@ class ApplicationNomade(tk.Tk):
         self._rafraichir()
 
     def _creer_interface(self) -> None:
-        cadre_actions = ttk.LabelFrame(self, text="Actions direct")
+        cadre_actions = ttk.LabelFrame(self, text=self._texte("frame_actions"))
         cadre_actions.pack(fill="x", padx=8, pady=8)
 
-        ttk.Button(cadre_actions, text="Démarrer direct", command=self._demarrer).pack(side="left", padx=4, pady=4)
-        ttk.Button(cadre_actions, text="Couper direct", command=self._stopper).pack(side="left", padx=4, pady=4)
+        ttk.Button(cadre_actions, text=self._texte("button_start"), command=self._demarrer).pack(side="left", padx=4, pady=4)
+        ttk.Button(cadre_actions, text=self._texte("button_stop"), command=self._stopper).pack(side="left", padx=4, pady=4)
 
-        cadre_overlays = ttk.LabelFrame(self, text="Éléments visuels")
+        cadre_overlays = ttk.LabelFrame(self, text=self._texte("frame_overlays"))
         cadre_overlays.pack(fill="x", padx=8, pady=8)
 
         self.variables: dict[str, tk.BooleanVar] = {}
@@ -99,12 +110,12 @@ class ApplicationNomade(tk.Tk):
                 command=lambda c=cle: self._basculer_source(c),
             ).pack(side="left", padx=6, pady=4)
 
-        cadre_etat = ttk.LabelFrame(self, text="État capteurs")
+        cadre_etat = ttk.LabelFrame(self, text=self._texte("frame_sensors"))
         cadre_etat.pack(fill="x", padx=8, pady=8)
-        self.texte_etat = tk.StringVar(value="Aucune donnée")
+        self.texte_etat = tk.StringVar(value=self._texte("sensor_no_data"))
         ttk.Label(cadre_etat, textvariable=self.texte_etat).pack(anchor="w", padx=6, pady=6)
 
-        cadre_chat = ttk.LabelFrame(self, text="Derniers messages chat unifié")
+        cadre_chat = ttk.LabelFrame(self, text=self._texte("frame_chat"))
         cadre_chat.pack(fill="both", expand=True, padx=8, pady=8)
 
         cadre_zone_chat = ttk.Frame(cadre_chat)
@@ -117,32 +128,36 @@ class ApplicationNomade(tk.Tk):
         barre_defilement.pack(side="right", fill="y")
         self.zone_chat.configure(state="disabled")
 
-        self.texte_statut = tk.StringVar(value="Prêt")
+        self.texte_statut = tk.StringVar(value=self._texte("status_ready"))
         ttk.Label(self, textvariable=self.texte_statut).pack(anchor="w", padx=8, pady=(0, 8))
+
+    def _texte(self, cle: str, **variables: str) -> str:
+        modele = self.textes.get(cle, cle)
+        return modele.format(**variables) if variables else modele
 
     def _demarrer(self) -> None:
         try:
             self.controle_obs.demarrer_diffusion()
-            self.texte_statut.set("Diffusion démarrée")
+            self.texte_statut.set(self._texte("status_started"))
         except Exception as exc:  # pragma: no cover
-            self.texte_statut.set(f"Erreur démarrage: {exc}")
+            self.texte_statut.set(self._texte("status_start_error", error=str(exc)))
 
     def _stopper(self) -> None:
         try:
             self.controle_obs.stopper_diffusion()
-            self.texte_statut.set("Diffusion arrêtée")
+            self.texte_statut.set(self._texte("status_stopped"))
         except Exception as exc:  # pragma: no cover
-            self.texte_statut.set(f"Erreur arrêt: {exc}")
+            self.texte_statut.set(self._texte("status_stop_error", error=str(exc)))
 
     def _basculer_source(self, cle: str) -> None:
         actif = self.variables[cle].get()
         nom_source = self.sources[cle]
         try:
             self.controle_obs.activer_source(self.scene, nom_source, actif)
-            action = "activé" if actif else "désactivé"
-            self.texte_statut.set(f"{nom_source} {action}")
+            cle = "status_source_enabled" if actif else "status_source_disabled"
+            self.texte_statut.set(self._texte(cle, source=nom_source))
         except Exception as exc:  # pragma: no cover
-            self.texte_statut.set(f"Erreur source {nom_source}: {exc}")
+            self.texte_statut.set(self._texte("status_source_error", source=nom_source, error=str(exc)))
 
     def _lire_capteurs(self) -> dict[str, Any]:
         if not self.fichier_capteurs.exists():
@@ -181,17 +196,21 @@ class ApplicationNomade(tk.Tk):
             return []
 
     def _format_etat(self, donnees: dict[str, Any]) -> str:
+        if not donnees:
+            return self._texte("sensor_no_data")
+
         position = donnees.get("position", {})
         reseau = donnees.get("reseau", {})
         meteo = donnees.get("meteo", {})
+        indisponible = self._texte("sensor_not_available")
 
         return (
-            f"Latitude: {position.get('latitude', 'n/d')} | "
-            f"Longitude: {position.get('longitude', 'n/d')} | "
-            f"Vitesse: {donnees.get('vitesse_kmh', 'n/d')} km/h | "
-            f"Pulsations: {donnees.get('pulsations', 'n/d')} bpm | "
-            f"Réseau: {reseau.get('type', 'n/d')} ({reseau.get('signal_dbm', 'n/d')} dBm) | "
-            f"Météo: {meteo.get('temperature_c', 'n/d')}°C {meteo.get('description', '')}"
+            f"{self._texte('sensor_latitude')}: {position.get('latitude', indisponible)} | "
+            f"{self._texte('sensor_longitude')}: {position.get('longitude', indisponible)} | "
+            f"{self._texte('sensor_speed')}: {donnees.get('vitesse_kmh', indisponible)} km/h | "
+            f"{self._texte('sensor_heart_rate')}: {donnees.get('pulsations', indisponible)} bpm | "
+            f"{self._texte('sensor_network')}: {reseau.get('type', indisponible)} ({reseau.get('signal_dbm', indisponible)} dBm) | "
+            f"{self._texte('sensor_weather')}: {meteo.get('temperature_c', indisponible)}°C {meteo.get('description', '')}"
         )
 
     def _rafraichir(self) -> None:
@@ -228,11 +247,39 @@ def analyser_arguments() -> argparse.Namespace:
     parser.add_argument("--source-heure", default="Heure")
     parser.add_argument("--fichier-capteurs", default="/var/lib/nomade/capteurs.json")
     parser.add_argument("--fichier-chat", default="/var/lib/nomade/chat_unifie.log")
+    parser.add_argument(
+        "--langue",
+        default=os.environ.get("NOMADE_LANGUE", LANGUE_PAR_DEFAUT),
+        help="Langue de l'interface (fr par défaut).",
+    )
+    parser.add_argument(
+        "--obs-attente",
+        type=int,
+        default=int(os.environ.get("NOMADE_OBS_ATTENTE", "30")),
+        help="Durée maximale d'attente de la connexion OBS en secondes.",
+    )
     return parser.parse_args()
+
+
+def connecter_obs(cfg: ConfigurationOBS, attente_secondes: int) -> ControleOBS:
+    deadline = time.monotonic() + max(attente_secondes, 0)
+
+    while True:
+        try:
+            return ControleOBS(cfg)
+        except Exception as exc:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(1)
 
 
 def main() -> int:
     args = analyser_arguments()
+    textes = charger_traductions(args.langue, Path(__file__).resolve().parent.parent / "locales")
+
+    if not est_hote_obs_local(args.obs_hote):
+        print(textes["obs_host_local_only"])
+        return 1
 
     cfg = ConfigurationOBS(
         hote=args.obs_hote,
@@ -251,9 +298,9 @@ def main() -> int:
     }
 
     try:
-        controle_obs = ControleOBS(cfg)
+        controle_obs = connecter_obs(cfg, args.obs_attente)
     except Exception as exc:
-        print("Connexion OBS impossible. Vérifiez OBS ouvert et module obs-websocket actif.")
+        print(textes["obs_connection_error"])
         if os.environ.get("NOMADE_DEBUG", "0") == "1":
             print(f"Détail debug: {exc}")
         return 1
@@ -264,6 +311,7 @@ def main() -> int:
         fichier_chat=Path(args.fichier_chat),
         scene=args.scene,
         sources=sources,
+        textes=textes,
     )
     app.mainloop()
     return 0

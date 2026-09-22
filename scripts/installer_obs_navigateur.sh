@@ -41,4 +41,6 @@ apt-get install -y "$PAQUET_LOCAL"
 rm -f "$PAQUET_LOCAL"
 
 echo "OBS Studio installé avec la Source Navigateur (Browser Source)."
-echo "Utilisez ./scripts/lancer_obs.sh pour le démarrer avec l'accélération graphique adaptée au Raspberry Pi 4."
+echo "Utilisez ./scripts/lancer_obs_preparation.sh pour la préparation,"
+echo "./scripts/lancer_obs_direct.sh pour le direct allégé,"
+echo "ou ./scripts/lancer_obs.sh pour la compatibilité historique."
