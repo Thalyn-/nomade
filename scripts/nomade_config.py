@@ -307,7 +307,7 @@ def _valider_configuration(configuration: dict[str, Any]) -> None:
                         source["srt_port"] = port
         elif source["srt_port"] is not None:
             erreurs.append(f"video_sources '{identifiant}' ne peut définir srt_port que pour type='srt'.")
-        if source["enabled_by_default"]:
+        if source["enabled_by_default"] and source["group"]:
             sources_actives_par_groupe.setdefault(source["group"], []).append(identifiant)
 
     for groupe, identifiants in sources_actives_par_groupe.items():
@@ -332,6 +332,12 @@ def _valider_configuration(configuration: dict[str, Any]) -> None:
         identifiant = preset["id"]
         if not identifiant:
             continue
+        cibles_communes = set(preset["activer"]) & set(preset["desactiver"])
+        if cibles_communes:
+            liste = ", ".join(sorted(cibles_communes))
+            erreurs.append(
+                f"preset '{identifiant}' ne peut pas référencer les mêmes identifiants dans activer et desactiver ({liste}).",
+            )
         sources_activees_par_groupe: dict[str, str] = {}
         for cle_liste in ("activer", "desactiver"):
             for cible in preset[cle_liste]:

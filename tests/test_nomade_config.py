@@ -569,6 +569,28 @@ class NomadeConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(ErreurConfiguration, "active plusieurs sources du groupe"):
                 charger_configuration(repertoire_depot=repo)
 
+    def test_refuse_un_preset_avec_identifiant_dans_activer_et_desactiver(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[presets]]
+                    id = "preset_test"
+                    label = "Preset test"
+                    activer = ["carte"]
+                    desactiver = ["carte"]
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "activer et desactiver"):
+                charger_configuration(repertoire_depot=repo)
+
 
 if __name__ == "__main__":
     unittest.main()
