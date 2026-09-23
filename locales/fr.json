@@ -31,5 +31,6 @@
   "video_source_default_label": "Source vidéo {id}",
   "preset_default_label": "Preset {id}",
   "status_preset_applied": "Preset appliqué : {preset}",
-  "status_preset_error": "Erreur preset {preset} : {error}"
+  "status_preset_error": "Erreur preset {preset} : {error}",
+  "status_group_disabled": "Groupe vidéo désactivé : {group}"
 }

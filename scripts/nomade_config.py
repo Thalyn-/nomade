@@ -195,10 +195,9 @@ def _normaliser_configuration(configuration: dict[str, Any], repertoire_depot: P
         source_normalisee["type"] = str(source_normalisee.get("type", "")).strip().lower()
         source_normalisee["obs_source_name"] = str(source_normalisee.get("obs_source_name", "")).strip()
         source_normalisee["group"] = str(source_normalisee.get("group", "")).strip()
-        source_normalisee["enabled_by_default"] = bool(source_normalisee.get("enabled_by_default", False))
-        if "srt_port" in source_normalisee and source_normalisee["srt_port"] not in ("", None):
-            source_normalisee["srt_port"] = int(source_normalisee["srt_port"])
-        else:
+        source_normalisee["enabled_by_default"] = source_normalisee.get("enabled_by_default", False)
+        source_normalisee["srt_port"] = source_normalisee.get("srt_port", None)
+        if source_normalisee["srt_port"] in ("", None):
             source_normalisee["srt_port"] = None
         video_sources_normalisees.append(source_normalisee)
 
@@ -215,8 +214,8 @@ def _normaliser_configuration(configuration: dict[str, Any], repertoire_depot: P
         desactiver = preset_normalise.get("desactiver", [])
         if not isinstance(activer, list) or not isinstance(desactiver, list):
             raise ErreurConfiguration("Les champs presets.activer et presets.desactiver doivent être des listes.")
-        preset_normalise["activer"] = [str(identifiant).strip() for identifiant in activer if str(identifiant).strip()]
-        preset_normalise["desactiver"] = [str(identifiant).strip() for identifiant in desactiver if str(identifiant).strip()]
+        preset_normalise["activer"] = [str(identifiant).strip() for identifiant in activer]
+        preset_normalise["desactiver"] = [str(identifiant).strip() for identifiant in desactiver]
         presets_normalises.append(preset_normalise)
 
     configuration_normalisee = {
@@ -290,9 +289,19 @@ def _valider_configuration(configuration: dict[str, Any]) -> None:
             erreurs.append(f"video_sources '{identifiant}' doit définir obs_source_name.")
         if not source["group"]:
             erreurs.append(f"video_sources '{identifiant}' doit définir group.")
+        if not isinstance(source["enabled_by_default"], bool):
+            erreurs.append(f"video_sources '{identifiant}' doit définir enabled_by_default avec un booléen.")
         if source["type"] == "srt":
-            if source["srt_port"] is not None and not 1 <= source["srt_port"] <= 65535:
-                erreurs.append(f"video_sources '{identifiant}' a un srt_port invalide (1-65535).")
+            if source["srt_port"] is not None:
+                try:
+                    port = int(source["srt_port"])
+                except (TypeError, ValueError):
+                    erreurs.append(f"video_sources '{identifiant}' a un srt_port invalide (entier attendu).")
+                else:
+                    if not 1 <= port <= 65535:
+                        erreurs.append(f"video_sources '{identifiant}' a un srt_port invalide (1-65535).")
+                    else:
+                        source["srt_port"] = port
         elif source["srt_port"] is not None:
             erreurs.append(f"video_sources '{identifiant}' ne peut définir srt_port que pour type='srt'.")
 
@@ -309,6 +318,9 @@ def _valider_configuration(configuration: dict[str, Any]) -> None:
 
         for cle_liste in ("activer", "desactiver"):
             for cible in preset[cle_liste]:
+                if not cible:
+                    erreurs.append(f"preset '{identifiant}' contient un identifiant vide dans {cle_liste}.")
+                    continue
                 if cible not in identifiants_connus:
                     erreurs.append(
                         f"preset '{identifiant}' référence '{cible}' dans {cle_liste}, mais cet identifiant est inconnu.",

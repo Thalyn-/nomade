@@ -305,6 +305,77 @@ class NomadeConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(ErreurConfiguration, "identifiant est inconnu"):
                 charger_configuration(repertoire_depot=repo)
 
+    def test_refuse_un_enabled_by_default_non_booleen(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[video_sources]]
+                    id = "camera_test"
+                    label = "Camera Test"
+                    type = "capture_usb"
+                    obs_source_name = "Camera Test"
+                    group = "camera_principale"
+                    enabled_by_default = "false"
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "booléen"):
+                charger_configuration(repertoire_depot=repo)
+
+    def test_refuse_un_srt_port_non_numerique(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[video_sources]]
+                    id = "xiaomi_arriere"
+                    label = "Xiaomi"
+                    type = "srt"
+                    obs_source_name = "Xiaomi Arriere"
+                    group = "camera_principale"
+                    enabled_by_default = true
+                    srt_port = "abc"
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "srt_port invalide"):
+                charger_configuration(repertoire_depot=repo)
+
+    def test_refuse_un_identifiant_vide_dans_un_preset(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[presets]]
+                    id = "preset_test"
+                    label = "Preset test"
+                    activer = [" "]
+                    desactiver = []
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "identifiant vide"):
+                charger_configuration(repertoire_depot=repo)
+
 
 if __name__ == "__main__":
     unittest.main()

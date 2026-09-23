@@ -282,6 +282,9 @@ class ApplicationNomade(tk.Tk):
                 source = self.sources_video_par_id[identifiant_source]
                 actif = identifiant_source == selection
                 self.controle_obs.activer_source(self.scene, source["obs_source_name"], actif)
+            if not selection:
+                self.texte_statut.set(self._texte("status_group_disabled", group=identifiant_groupe))
+                return
             nom_source = self.sources_video_par_id[selection]["label"] or self._texte("video_source_default_label", id=selection)
             self.texte_statut.set(self._texte("status_source_enabled", source=nom_source))
         except Exception as exc:  # pragma: no cover
@@ -305,6 +308,7 @@ class ApplicationNomade(tk.Tk):
         self.controle_obs.activer_source(self.scene, source["obs_source_name"], False)
         if self.variables_groupes_video[identifiant_groupe].get() == identifiant:
             self.variables_groupes_video[identifiant_groupe].set("")
+            self._selectionner_source_groupe(identifiant_groupe)
 
     def _appliquer_preset(self, identifiant_preset: str) -> None:
         preset = next((element for element in self.presets if element["id"] == identifiant_preset), None)
