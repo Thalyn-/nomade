@@ -18,6 +18,8 @@ from nomade_utils import est_hote_obs_local
 
 
 SERVICES_CHAT = {"none", "velora", "botrix", "custom"}
+TYPES_SOURCES_VIDEO = {"capture_usb", "srt", "webcam"}
+IDENTIFIANTS_OVERLAYS = {"selfie", "carte", "vitesse", "pulsations", "meteo", "heure", "chat_multicanal"}
 
 
 class ErreurConfiguration(ValueError):
@@ -80,6 +82,8 @@ def afficher_diagnostic(
         f"Profil direct OBS : {configuration['obs']['profile_direct']}",
         f"MQTT capteurs : {configuration['mqtt']['host']}:{configuration['mqtt']['port']} sur interface {configuration['mqtt']['network_interface']}",
         f"Chat multicanal : {configuration['chat']['service']} ({hote_chat})",
+        f"Sources vidéo configurées : {len(configuration['video_sources'])}",
+        f"Presets configurés : {len(configuration['presets'])}",
         f"Venv Python : {configuration['paths']['python_venv']}",
         f"Répertoire données : {configuration['paths']['data_dir']}",
         "Tkinter reste l'interface locale principale ; aucune interface web obligatoire n'est activée.",
@@ -126,6 +130,8 @@ def _normaliser_configuration(configuration: dict[str, Any], repertoire_depot: P
     display = dict(configuration.get("display", {}))
     features = dict(configuration.get("features", {}))
     streaming = dict(configuration.get("streaming", {}))
+    video_sources = configuration.get("video_sources", [])
+    presets = configuration.get("presets", [])
 
     paths["repository"] = str(Path(paths.get("repository") or repertoire_depot).expanduser())
     paths["python_venv"] = str(Path(paths["python_venv"]).expanduser())
@@ -177,6 +183,42 @@ def _normaliser_configuration(configuration: dict[str, Any], repertoire_depot: P
         raise ErreurConfiguration("La section [streaming] doit définir des destinations sous forme de liste.")
     streaming["destinations"] = destinations
 
+    if not isinstance(video_sources, list):
+        raise ErreurConfiguration("La section [[video_sources]] doit être une liste d'objets TOML.")
+    video_sources_normalisees: list[dict[str, Any]] = []
+    for source in video_sources:
+        if not isinstance(source, dict):
+            raise ErreurConfiguration("Chaque entrée [[video_sources]] doit être un objet TOML.")
+        source_normalisee = dict(source)
+        source_normalisee["id"] = str(source_normalisee.get("id", "")).strip()
+        source_normalisee["label"] = str(source_normalisee.get("label", "")).strip()
+        source_normalisee["type"] = str(source_normalisee.get("type", "")).strip().lower()
+        source_normalisee["obs_source_name"] = str(source_normalisee.get("obs_source_name", "")).strip()
+        source_normalisee["group"] = str(source_normalisee.get("group", "")).strip()
+        source_normalisee["enabled_by_default"] = bool(source_normalisee.get("enabled_by_default", False))
+        if "srt_port" in source_normalisee and source_normalisee["srt_port"] not in ("", None):
+            source_normalisee["srt_port"] = int(source_normalisee["srt_port"])
+        else:
+            source_normalisee["srt_port"] = None
+        video_sources_normalisees.append(source_normalisee)
+
+    if not isinstance(presets, list):
+        raise ErreurConfiguration("La section [[presets]] doit être une liste d'objets TOML.")
+    presets_normalises: list[dict[str, Any]] = []
+    for preset in presets:
+        if not isinstance(preset, dict):
+            raise ErreurConfiguration("Chaque entrée [[presets]] doit être un objet TOML.")
+        preset_normalise = dict(preset)
+        preset_normalise["id"] = str(preset_normalise.get("id", "")).strip()
+        preset_normalise["label"] = str(preset_normalise.get("label", "")).strip()
+        activer = preset_normalise.get("activer", [])
+        desactiver = preset_normalise.get("desactiver", [])
+        if not isinstance(activer, list) or not isinstance(desactiver, list):
+            raise ErreurConfiguration("Les champs presets.activer et presets.desactiver doivent être des listes.")
+        preset_normalise["activer"] = [str(identifiant).strip() for identifiant in activer if str(identifiant).strip()]
+        preset_normalise["desactiver"] = [str(identifiant).strip() for identifiant in desactiver if str(identifiant).strip()]
+        presets_normalises.append(preset_normalise)
+
     configuration_normalisee = {
         "general": general,
         "paths": paths,
@@ -186,6 +228,8 @@ def _normaliser_configuration(configuration: dict[str, Any], repertoire_depot: P
         "display": display,
         "features": features,
         "streaming": streaming,
+        "video_sources": video_sources_normalisees,
+        "presets": presets_normalises,
     }
     _valider_configuration(configuration_normalisee)
     return configuration_normalisee
@@ -226,6 +270,49 @@ def _valider_configuration(configuration: dict[str, Any]) -> None:
             erreurs.append("Chaque destination streaming doit avoir un nom.")
         if not str(destination.get("obs_profile", "")).strip():
             erreurs.append(f"La destination streaming '{destination.get('name', '?')}' doit référencer un profil OBS.")
+
+    ids_sources_video: set[str] = set()
+    for source in configuration["video_sources"]:
+        identifiant = source["id"]
+        if not identifiant:
+            erreurs.append("Chaque source vidéo doit définir un id non vide.")
+            continue
+        if identifiant in ids_sources_video:
+            erreurs.append(f"video_sources contient un id dupliqué : '{identifiant}'.")
+        ids_sources_video.add(identifiant)
+
+        if source["type"] not in TYPES_SOURCES_VIDEO:
+            types_valides = ", ".join(sorted(TYPES_SOURCES_VIDEO))
+            erreurs.append(
+                f"video_sources '{identifiant}' a un type invalide '{source['type']}' (types autorisés : {types_valides}).",
+            )
+        if not source["obs_source_name"]:
+            erreurs.append(f"video_sources '{identifiant}' doit définir obs_source_name.")
+        if not source["group"]:
+            erreurs.append(f"video_sources '{identifiant}' doit définir group.")
+        if source["type"] == "srt":
+            if source["srt_port"] is not None and not 1 <= source["srt_port"] <= 65535:
+                erreurs.append(f"video_sources '{identifiant}' a un srt_port invalide (1-65535).")
+        elif source["srt_port"] is not None:
+            erreurs.append(f"video_sources '{identifiant}' ne peut définir srt_port que pour type='srt'.")
+
+    identifiants_connus = set(IDENTIFIANTS_OVERLAYS) | ids_sources_video
+    ids_presets: set[str] = set()
+    for preset in configuration["presets"]:
+        identifiant = preset["id"]
+        if not identifiant:
+            erreurs.append("Chaque preset doit définir un id non vide.")
+            continue
+        if identifiant in ids_presets:
+            erreurs.append(f"presets contient un id dupliqué : '{identifiant}'.")
+        ids_presets.add(identifiant)
+
+        for cle_liste in ("activer", "desactiver"):
+            for cible in preset[cle_liste]:
+                if cible not in identifiants_connus:
+                    erreurs.append(
+                        f"preset '{identifiant}' référence '{cible}' dans {cle_liste}, mais cet identifiant est inconnu.",
+                    )
 
     if erreurs:
         raise ErreurConfiguration("Configuration Nomade invalide :\n- " + "\n- ".join(erreurs))

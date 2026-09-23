@@ -104,6 +104,50 @@ La configuration couvre notamment :
 - quelques préférences d’affichage et fonctions activables ;
 - les emplacements du dépôt, du venv Python, des données et des journaux.
 
+### Sources vidéo interchangeables et groupes exclusifs
+
+La configuration accepte désormais une liste `[[video_sources]]` :
+
+- `id` : identifiant stable côté Nomade ;
+- `label` : libellé affiché dans l’interface tactile ;
+- `type` : `capture_usb`, `srt` ou `webcam` ;
+- `obs_source_name` : nom exact de la source dans OBS ;
+- `group` : groupe fonctionnel exclusif ;
+- `enabled_by_default` : état initial ;
+- `srt_port` : optionnel (informatif) pour les sources `srt`.
+
+Les sources d’un même `group` sont mutuellement exclusives dans l’interface : sélectionner une source désactive automatiquement les autres du même groupe dans OBS.
+
+Exemple typique :
+
+- groupe `camera_principale` : G7 principal, G7 secours, Xiaomi grand angle ;
+- groupe `vignette_visage` : Xiaomi selfie.
+
+### Sources SRT Xiaomi via OBS (sans relais Python)
+
+Nomade ne décode pas lui-même les flux SRT : OBS reste le moteur vidéo unique.
+
+Pour une source SRT (ex. Larix Broadcaster sur Xiaomi), configurez côté OBS une **Source Média** en écoute :
+
+`srt://0.0.0.0:9000?mode=listener`
+
+Le flux est reçu nativement par OBS, puis Nomade ne fait qu’activer/désactiver la source via websocket.
+
+### Presets (préréglages)
+
+La liste `[[presets]]` permet d’appliquer en un clic plusieurs actions :
+
+- `id`, `label`
+- `activer` : identifiants à activer
+- `desactiver` : identifiants à désactiver
+
+Ces identifiants peuvent cibler les overlays existants (`selfie`, `carte`, `vitesse`, `pulsations`, `meteo`, `heure`, `chat_multicanal`) et les `id` de `video_sources`.
+
+Exemples inclus :
+
+- `sans_reperes` : masque `carte` et `vitesse`
+- `trajet` : affiche `carte` et `vitesse`
+
 ### À propos de `/opt/nomade-venv`
 
 Le chemin par défaut du venv reste `/opt/nomade-venv`. C’est un **choix d’organisation** classique pour une application tierce sous Debian/DietPi, pas un gain de performances. Le dépôt évite ainsi d’encourager une installation de l’application sous `/root`.

@@ -161,6 +161,150 @@ class NomadeConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(ErreurConfiguration, "nomade.local.toml"):
                 charger_configuration(repertoire_depot=repo)
 
+    def test_valide_video_sources_et_presets(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[video_sources]]
+                    id = "g7_principal"
+                    label = "Lumix G7 principal"
+                    type = "capture_usb"
+                    obs_source_name = "G7 Principal"
+                    group = "camera_principale"
+                    enabled_by_default = true
+
+                    [[video_sources]]
+                    id = "xiaomi_arriere"
+                    label = "Xiaomi 11T grand angle"
+                    type = "srt"
+                    obs_source_name = "Xiaomi Arriere"
+                    group = "camera_principale"
+                    enabled_by_default = false
+                    srt_port = 9001
+
+                    [[presets]]
+                    id = "sans_reperes"
+                    label = "Sans repères"
+                    activer = []
+                    desactiver = ["carte", "vitesse"]
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            configuration = charger_configuration(repertoire_depot=repo)
+
+            self.assertEqual(len(configuration["video_sources"]), 2)
+            self.assertEqual(configuration["video_sources"][1]["type"], "srt")
+            self.assertEqual(configuration["video_sources"][1]["srt_port"], 9001)
+            self.assertEqual(configuration["presets"][0]["id"], "sans_reperes")
+
+    def test_refuse_un_type_video_source_invalide(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[video_sources]]
+                    id = "camera_test"
+                    label = "Camera Test"
+                    type = "ndi"
+                    obs_source_name = "Camera Test"
+                    group = "camera_principale"
+                    enabled_by_default = true
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "type invalide"):
+                charger_configuration(repertoire_depot=repo)
+
+    def test_refuse_une_video_source_sans_group(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[video_sources]]
+                    id = "camera_test"
+                    label = "Camera Test"
+                    type = "capture_usb"
+                    obs_source_name = "Camera Test"
+                    enabled_by_default = true
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "doit définir group"):
+                charger_configuration(repertoire_depot=repo)
+
+    def test_refuse_des_ids_video_sources_dupliques(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[video_sources]]
+                    id = "camera_test"
+                    label = "Camera Test 1"
+                    type = "capture_usb"
+                    obs_source_name = "Camera Test 1"
+                    group = "camera_principale"
+                    enabled_by_default = true
+
+                    [[video_sources]]
+                    id = "camera_test"
+                    label = "Camera Test 2"
+                    type = "webcam"
+                    obs_source_name = "Camera Test 2"
+                    group = "camera_principale"
+                    enabled_by_default = false
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "id dupliqué"):
+                charger_configuration(repertoire_depot=repo)
+
+    def test_refuse_un_preset_avec_identifiant_inconnu(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[presets]]
+                    id = "preset_test"
+                    label = "Preset test"
+                    activer = ["source_inconnue"]
+                    desactiver = []
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "identifiant est inconnu"):
+                charger_configuration(repertoire_depot=repo)
+
 
 if __name__ == "__main__":
     unittest.main()

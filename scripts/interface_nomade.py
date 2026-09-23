@@ -79,7 +79,9 @@ class ApplicationNomade(tk.Tk):
         fichier_capteurs: Path,
         fichier_chat: Path,
         scene: str,
-        sources: dict[str, str],
+        sources_overlays: dict[str, str],
+        sources_video: list[dict[str, Any]],
+        presets: list[dict[str, Any]],
         etat_initial_sources: dict[str, bool],
         textes: dict[str, str],
         geometrie: str,
@@ -94,46 +96,101 @@ class ApplicationNomade(tk.Tk):
         self.fichier_capteurs = fichier_capteurs
         self.fichier_chat = fichier_chat
         self.scene = scene
-        self.sources = sources
+        self.sources_overlays = sources_overlays
+        self.sources_video = [dict(source) for source in sources_video]
+        self.presets = [dict(preset) for preset in presets]
         self.etat_initial_sources = etat_initial_sources
         self.afficher_chat = afficher_chat
+        self.groupes_video: dict[str, list[str]] = {}
+        self.sources_video_par_id: dict[str, dict[str, Any]] = {}
+        self.variables_groupes_video: dict[str, tk.StringVar] = {}
+        self.variables_overlays: dict[str, tk.BooleanVar] = {}
 
         self.messages_chat: deque[str] = deque(maxlen=5)
         self._chat_position = 0
         self._chat_signature: tuple[int, int] | None = None
         self.zone_chat: tk.Text | None = None
 
+        self._indexer_sources_video()
+        self._configurer_style_tactile()
         self._creer_interface()
         self._rafraichir()
 
+    def _indexer_sources_video(self) -> None:
+        for source in self.sources_video:
+            identifiant = source["id"]
+            self.sources_video_par_id[identifiant] = source
+            self.groupes_video.setdefault(source["group"], []).append(identifiant)
+
+    def _configurer_style_tactile(self) -> None:
+        style = ttk.Style(self)
+        style.configure("TButton", padding=(12, 8))
+        style.configure("TCheckbutton", padding=(8, 6))
+        style.configure("TRadiobutton", padding=(10, 8))
+        style.configure("TLabelframe.Label", padding=(4, 2))
+        style.configure("TLabel", padding=(2, 2))
+
     def _creer_interface(self) -> None:
-        cadre_actions = ttk.LabelFrame(self, text=self._texte("frame_actions"))
+        conteneur = ttk.Frame(self)
+        conteneur.pack(fill="both", expand=True)
+        canevas = tk.Canvas(conteneur, highlightthickness=0)
+        barre_defilement = ttk.Scrollbar(conteneur, orient="vertical", command=canevas.yview)
+        canevas.configure(yscrollcommand=barre_defilement.set)
+        canevas.pack(side="left", fill="both", expand=True)
+        barre_defilement.pack(side="right", fill="y")
+
+        contenu = ttk.Frame(canevas)
+        fenetre_contenu = canevas.create_window((0, 0), window=contenu, anchor="nw")
+
+        def _ajuster_zone_defilement(_: Any) -> None:
+            canevas.configure(scrollregion=canevas.bbox("all"))
+
+        def _ajuster_largeur_fenetre(_: Any) -> None:
+            canevas.itemconfigure(fenetre_contenu, width=canevas.winfo_width())
+
+        contenu.bind("<Configure>", _ajuster_zone_defilement)
+        canevas.bind("<Configure>", _ajuster_largeur_fenetre)
+
+        cadre_actions = ttk.LabelFrame(contenu, text=self._texte("frame_actions"))
         cadre_actions.pack(fill="x", padx=8, pady=8)
 
-        ttk.Button(cadre_actions, text=self._texte("button_start"), command=self._demarrer).pack(side="left", padx=4, pady=4)
-        ttk.Button(cadre_actions, text=self._texte("button_stop"), command=self._stopper).pack(side="left", padx=4, pady=4)
+        ttk.Button(cadre_actions, text=self._texte("button_start"), command=self._demarrer).pack(side="left", padx=8, pady=8)
+        ttk.Button(cadre_actions, text=self._texte("button_stop"), command=self._stopper).pack(side="left", padx=8, pady=8)
 
-        cadre_overlays = ttk.LabelFrame(self, text=self._texte("frame_overlays"))
+        if self.presets:
+            cadre_presets = ttk.LabelFrame(contenu, text=self._texte("frame_presets"))
+            cadre_presets.pack(fill="x", padx=8, pady=8)
+            for preset in self.presets:
+                identifiant = preset["id"]
+                libelle = preset["label"] or self._texte("preset_default_label", id=identifiant)
+                ttk.Button(
+                    cadre_presets,
+                    text=libelle,
+                    command=lambda p=identifiant: self._appliquer_preset(p),
+                ).pack(side="left", padx=8, pady=8)
+
+        self._creer_groupes_video(contenu)
+
+        cadre_overlays = ttk.LabelFrame(contenu, text=self._texte("frame_overlays"))
         cadre_overlays.pack(fill="x", padx=8, pady=8)
 
-        self.variables: dict[str, tk.BooleanVar] = {}
-        for cle, nom_source in self.sources.items():
+        for cle, nom_source in self.sources_overlays.items():
             var = tk.BooleanVar(value=self.etat_initial_sources.get(cle, True))
-            self.variables[cle] = var
+            self.variables_overlays[cle] = var
             ttk.Checkbutton(
                 cadre_overlays,
                 text=nom_source,
                 variable=var,
-                command=lambda c=cle: self._basculer_source(c),
-            ).pack(side="left", padx=6, pady=4)
+                command=lambda c=cle: self._basculer_overlay(c),
+            ).pack(side="left", padx=8, pady=8)
 
-        cadre_etat = ttk.LabelFrame(self, text=self._texte("frame_sensors"))
+        cadre_etat = ttk.LabelFrame(contenu, text=self._texte("frame_sensors"))
         cadre_etat.pack(fill="x", padx=8, pady=8)
         self.texte_etat = tk.StringVar(value=self._texte("sensor_no_data"))
         ttk.Label(cadre_etat, textvariable=self.texte_etat).pack(anchor="w", padx=6, pady=6)
 
         if self.afficher_chat:
-            cadre_chat = ttk.LabelFrame(self, text=self._texte("frame_chat"))
+            cadre_chat = ttk.LabelFrame(contenu, text=self._texte("frame_chat"))
             cadre_chat.pack(fill="both", expand=True, padx=8, pady=8)
 
             cadre_zone_chat = ttk.Frame(cadre_chat)
@@ -148,6 +205,47 @@ class ApplicationNomade(tk.Tk):
 
         self.texte_statut = tk.StringVar(value=self._texte("status_ready"))
         ttk.Label(self, textvariable=self.texte_statut).pack(anchor="w", padx=8, pady=(0, 8))
+
+    def _creer_groupes_video(self, parent: ttk.Frame) -> None:
+        groupes_specifiques = [("camera_principale", "frame_video_main"), ("vignette_visage", "frame_video_face")]
+        groupes_traites: set[str] = set()
+        for identifiant_groupe, cle_titre in groupes_specifiques:
+            if identifiant_groupe not in self.groupes_video:
+                continue
+            self._creer_cadre_groupe_video(parent, identifiant_groupe, self._texte(cle_titre))
+            groupes_traites.add(identifiant_groupe)
+
+        for identifiant_groupe in sorted(self.groupes_video):
+            if identifiant_groupe in groupes_traites:
+                continue
+            self._creer_cadre_groupe_video(
+                parent,
+                identifiant_groupe,
+                self._texte("frame_video_group", group=identifiant_groupe),
+            )
+
+    def _creer_cadre_groupe_video(self, parent: ttk.Frame, identifiant_groupe: str, titre: str) -> None:
+        cadre_groupe = ttk.LabelFrame(parent, text=titre)
+        cadre_groupe.pack(fill="x", padx=8, pady=8)
+
+        selection_initiale = ""
+        for identifiant in self.groupes_video.get(identifiant_groupe, []):
+            if self.sources_video_par_id[identifiant]["enabled_by_default"]:
+                selection_initiale = identifiant
+                break
+        variable = tk.StringVar(value=selection_initiale)
+        self.variables_groupes_video[identifiant_groupe] = variable
+
+        for identifiant in self.groupes_video.get(identifiant_groupe, []):
+            source = self.sources_video_par_id[identifiant]
+            libelle = source["label"] or self._texte("video_source_default_label", id=identifiant)
+            ttk.Radiobutton(
+                cadre_groupe,
+                text=libelle,
+                variable=variable,
+                value=identifiant,
+                command=lambda groupe=identifiant_groupe: self._selectionner_source_groupe(groupe),
+            ).pack(side="left", padx=8, pady=8)
 
     def _texte(self, cle: str, **variables: str) -> str:
         modele = self.textes.get(cle, cle)
@@ -167,15 +265,61 @@ class ApplicationNomade(tk.Tk):
         except Exception as exc:  # pragma: no cover
             self.texte_statut.set(self._texte("status_stop_error", error=str(exc)))
 
-    def _basculer_source(self, cle: str) -> None:
-        actif = self.variables[cle].get()
-        nom_source = self.sources[cle]
+    def _basculer_overlay(self, cle: str) -> None:
+        actif = self.variables_overlays[cle].get()
+        nom_source = self.sources_overlays[cle]
         try:
             self.controle_obs.activer_source(self.scene, nom_source, actif)
-            cle = "status_source_enabled" if actif else "status_source_disabled"
-            self.texte_statut.set(self._texte(cle, source=nom_source))
+            cle_statut = "status_source_enabled" if actif else "status_source_disabled"
+            self.texte_statut.set(self._texte(cle_statut, source=nom_source))
         except Exception as exc:  # pragma: no cover
             self.texte_statut.set(self._texte("status_source_error", source=nom_source, error=str(exc)))
+
+    def _selectionner_source_groupe(self, identifiant_groupe: str) -> None:
+        selection = self.variables_groupes_video[identifiant_groupe].get()
+        try:
+            for identifiant_source in self.groupes_video.get(identifiant_groupe, []):
+                source = self.sources_video_par_id[identifiant_source]
+                actif = identifiant_source == selection
+                self.controle_obs.activer_source(self.scene, source["obs_source_name"], actif)
+            nom_source = self.sources_video_par_id[selection]["label"] or self._texte("video_source_default_label", id=selection)
+            self.texte_statut.set(self._texte("status_source_enabled", source=nom_source))
+        except Exception as exc:  # pragma: no cover
+            source = self.sources_video_par_id.get(selection, {})
+            nom_source = source.get("label") or self._texte("video_source_default_label", id=selection or identifiant_groupe)
+            self.texte_statut.set(self._texte("status_source_error", source=nom_source, error=str(exc)))
+
+    def _appliquer_etat_identifiant(self, identifiant: str, actif: bool) -> None:
+        if identifiant in self.variables_overlays:
+            self.variables_overlays[identifiant].set(actif)
+            self._basculer_overlay(identifiant)
+            return
+        if identifiant not in self.sources_video_par_id:
+            return
+        source = self.sources_video_par_id[identifiant]
+        identifiant_groupe = source["group"]
+        if actif:
+            self.variables_groupes_video[identifiant_groupe].set(identifiant)
+            self._selectionner_source_groupe(identifiant_groupe)
+            return
+        self.controle_obs.activer_source(self.scene, source["obs_source_name"], False)
+        if self.variables_groupes_video[identifiant_groupe].get() == identifiant:
+            self.variables_groupes_video[identifiant_groupe].set("")
+
+    def _appliquer_preset(self, identifiant_preset: str) -> None:
+        preset = next((element for element in self.presets if element["id"] == identifiant_preset), None)
+        if preset is None:
+            return
+        try:
+            for identifiant in preset["desactiver"]:
+                self._appliquer_etat_identifiant(identifiant, False)
+            for identifiant in preset["activer"]:
+                self._appliquer_etat_identifiant(identifiant, True)
+            nom_preset = preset["label"] or self._texte("preset_default_label", id=identifiant_preset)
+            self.texte_statut.set(self._texte("status_preset_applied", preset=nom_preset))
+        except Exception as exc:  # pragma: no cover
+            nom_preset = preset["label"] or self._texte("preset_default_label", id=identifiant_preset)
+            self.texte_statut.set(self._texte("status_preset_error", preset=nom_preset, error=str(exc)))
 
     def _lire_capteurs(self) -> dict[str, Any]:
         if not self.fichier_capteurs.exists():
@@ -326,7 +470,7 @@ def main() -> int:
         scene_principale=scene,
     )
 
-    sources = {
+    sources_overlays = {
         "selfie": args.source_selfie or configuration["obs"]["source_selfie"],
         "carte": args.source_carte or configuration["obs"]["source_carte"],
         "vitesse": args.source_vitesse or configuration["obs"]["source_vitesse"],
@@ -334,11 +478,13 @@ def main() -> int:
         "meteo": args.source_meteo or configuration["obs"]["source_meteo"],
         "heure": args.source_heure or configuration["obs"]["source_heure"],
     }
-    etat_initial_sources = {cle: True for cle in sources}
+    etat_initial_sources = {cle: True for cle in sources_overlays}
     url_chat = url_chat_active(configuration)
     if configuration["chat"]["service"] != "none":
-        sources["chat_multicanal"] = configuration["chat"]["source_name"]
+        sources_overlays["chat_multicanal"] = configuration["chat"]["source_name"]
         etat_initial_sources["chat_multicanal"] = configuration["chat"]["enabled_by_default"]
+    sources_video = configuration.get("video_sources", [])
+    presets = configuration.get("presets", [])
 
     try:
         attente_obs = args.obs_attente or int(os.environ.get("NOMADE_OBS_ATTENTE", configuration["obs"]["wait_seconds"]))
@@ -371,7 +517,9 @@ def main() -> int:
         fichier_capteurs=Path(args.fichier_capteurs or configuration["paths"]["capteurs_file"]),
         fichier_chat=Path(args.fichier_chat or configuration["paths"]["chat_file"]),
         scene=scene,
-        sources=sources,
+        sources_overlays=sources_overlays,
+        sources_video=sources_video,
+        presets=presets,
         etat_initial_sources=etat_initial_sources,
         textes=textes,
         geometrie=configuration["display"]["window_geometry"],
