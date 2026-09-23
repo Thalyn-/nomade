@@ -376,6 +376,81 @@ class NomadeConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(ErreurConfiguration, "identifiant vide"):
                 charger_configuration(repertoire_depot=repo)
 
+    def test_refuse_un_srt_port_sur_source_non_srt(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[video_sources]]
+                    id = "webcam"
+                    label = "Webcam"
+                    type = "webcam"
+                    obs_source_name = "Webcam"
+                    group = "camera_principale"
+                    enabled_by_default = true
+                    srt_port = 9000
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "ne peut définir srt_port"):
+                charger_configuration(repertoire_depot=repo)
+
+    def test_refuse_des_ids_presets_dupliques(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[presets]]
+                    id = "preset_test"
+                    label = "Preset 1"
+                    activer = []
+                    desactiver = []
+
+                    [[presets]]
+                    id = "preset_test"
+                    label = "Preset 2"
+                    activer = []
+                    desactiver = []
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "presets contient un id dupliqué"):
+                charger_configuration(repertoire_depot=repo)
+
+    def test_refuse_un_id_preset_vide(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[presets]]
+                    id = ""
+                    label = "Preset sans id"
+                    activer = []
+                    desactiver = []
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "preset doit définir un id non vide"):
+                charger_configuration(repertoire_depot=repo)
+
 
 if __name__ == "__main__":
     unittest.main()

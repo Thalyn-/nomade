@@ -305,10 +305,9 @@ class ApplicationNomade(tk.Tk):
             self.variables_groupes_video[identifiant_groupe].set(identifiant)
             self._selectionner_source_groupe(identifiant_groupe)
             return
-        self.controle_obs.activer_source(self.scene, source["obs_source_name"], False)
         if self.variables_groupes_video[identifiant_groupe].get() == identifiant:
             self.variables_groupes_video[identifiant_groupe].set("")
-            self._selectionner_source_groupe(identifiant_groupe)
+        self._selectionner_source_groupe(identifiant_groupe)
 
     def _appliquer_preset(self, identifiant_preset: str) -> None:
         preset = next((element for element in self.presets if element["id"] == identifiant_preset), None)
