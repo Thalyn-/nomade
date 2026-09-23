@@ -499,6 +499,76 @@ class NomadeConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(ErreurConfiguration, "doivent être des listes"):
                 charger_configuration(repertoire_depot=repo)
 
+    def test_refuse_plusieurs_sources_par_defaut_dans_un_meme_groupe(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[video_sources]]
+                    id = "camera_a"
+                    label = "Camera A"
+                    type = "capture_usb"
+                    obs_source_name = "Camera A"
+                    group = "camera_principale"
+                    enabled_by_default = true
+
+                    [[video_sources]]
+                    id = "camera_b"
+                    label = "Camera B"
+                    type = "capture_usb"
+                    obs_source_name = "Camera B"
+                    group = "camera_principale"
+                    enabled_by_default = true
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "qu'une seule source enabled_by_default"):
+                charger_configuration(repertoire_depot=repo)
+
+    def test_refuse_un_preset_activant_plusieurs_sources_du_meme_groupe(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[video_sources]]
+                    id = "camera_a"
+                    label = "Camera A"
+                    type = "capture_usb"
+                    obs_source_name = "Camera A"
+                    group = "camera_principale"
+                    enabled_by_default = true
+
+                    [[video_sources]]
+                    id = "camera_b"
+                    label = "Camera B"
+                    type = "capture_usb"
+                    obs_source_name = "Camera B"
+                    group = "camera_principale"
+                    enabled_by_default = false
+
+                    [[presets]]
+                    id = "preset_test"
+                    label = "Preset test"
+                    activer = ["camera_a", "camera_b"]
+                    desactiver = []
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "active plusieurs sources du groupe"):
+                charger_configuration(repertoire_depot=repo)
+
 
 if __name__ == "__main__":
     unittest.main()

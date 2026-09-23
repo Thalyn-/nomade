@@ -271,6 +271,8 @@ def _valider_configuration(configuration: dict[str, Any]) -> None:
             erreurs.append(f"La destination streaming '{destination.get('name', '?')}' doit référencer un profil OBS.")
 
     ids_sources_video: set[str] = set()
+    sources_par_id: dict[str, dict[str, Any]] = {}
+    sources_actives_par_groupe: dict[str, list[str]] = {}
     for source in configuration["video_sources"]:
         identifiant = source["id"]
         if not identifiant:
@@ -279,6 +281,7 @@ def _valider_configuration(configuration: dict[str, Any]) -> None:
         if identifiant in ids_sources_video:
             erreurs.append(f"video_sources contient un id dupliqué : '{identifiant}'.")
         ids_sources_video.add(identifiant)
+        sources_par_id[identifiant] = source
 
         if source["type"] not in TYPES_SOURCES_VIDEO:
             types_valides = ", ".join(sorted(TYPES_SOURCES_VIDEO))
@@ -304,6 +307,13 @@ def _valider_configuration(configuration: dict[str, Any]) -> None:
                         source["srt_port"] = port
         elif source["srt_port"] is not None:
             erreurs.append(f"video_sources '{identifiant}' ne peut définir srt_port que pour type='srt'.")
+        if source["enabled_by_default"]:
+            sources_actives_par_groupe.setdefault(source["group"], []).append(identifiant)
+
+    for groupe, identifiants in sources_actives_par_groupe.items():
+        if len(identifiants) > 1:
+            liste = ", ".join(sorted(identifiants))
+            erreurs.append(f"Le groupe vidéo '{groupe}' ne peut avoir qu'une seule source enabled_by_default (trouvées : {liste}).")
 
     identifiants_connus = set(IDENTIFIANTS_OVERLAYS) | ids_sources_video
     ids_presets: set[str] = set()
@@ -315,16 +325,36 @@ def _valider_configuration(configuration: dict[str, Any]) -> None:
         if identifiant in ids_presets:
             erreurs.append(f"presets contient un id dupliqué : '{identifiant}'.")
         ids_presets.add(identifiant)
+        if identifiant in identifiants_connus:
+            erreurs.append(f"preset '{identifiant}' ne doit pas réutiliser un identifiant de source/overlay existant.")
 
+    for preset in configuration["presets"]:
+        identifiant = preset["id"]
+        if not identifiant:
+            continue
+        sources_activees_par_groupe: dict[str, str] = {}
         for cle_liste in ("activer", "desactiver"):
             for cible in preset[cle_liste]:
                 if not cible:
                     erreurs.append(f"preset '{identifiant}' contient un identifiant vide dans {cle_liste}.")
                     continue
+                if cible in ids_presets and cible not in identifiants_connus:
+                    erreurs.append(f"preset '{identifiant}' ne peut pas référencer un autre preset ('{cible}').")
+                    continue
                 if cible not in identifiants_connus:
                     erreurs.append(
                         f"preset '{identifiant}' référence '{cible}' dans {cle_liste}, mais cet identifiant est inconnu.",
                     )
+                    continue
+                if cle_liste == "activer" and cible in sources_par_id:
+                    groupe = sources_par_id[cible]["group"]
+                    deja = sources_activees_par_groupe.get(groupe)
+                    if deja and deja != cible:
+                        erreurs.append(
+                            f"preset '{identifiant}' active plusieurs sources du groupe '{groupe}' ({deja}, {cible}).",
+                        )
+                    else:
+                        sources_activees_par_groupe[groupe] = cible
 
     if erreurs:
         raise ErreurConfiguration("Configuration Nomade invalide :\n- " + "\n- ".join(erreurs))
