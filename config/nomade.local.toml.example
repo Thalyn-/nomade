@@ -20,3 +20,51 @@ enabled_by_default = false
 # velora_url = "https://velora.tv/overlay/chat-multi/identifiant-exemple"
 # botrix_url = "https://botrix.live/widgets/chat/?bid=identifiant-exemple"
 # custom_url = "https://exemple.invalid/chat"
+
+# Sources vidéo interchangeables (exemple réaliste à adapter dans OBS).
+[[video_sources]]
+id = "g7_principal"
+label = "Lumix G7 principal"
+type = "capture_usb"
+obs_source_name = "G7 Principal"
+group = "camera_principale"
+enabled_by_default = true
+
+[[video_sources]]
+id = "g7_secours"
+label = "Lumix G7 secours"
+type = "capture_usb"
+obs_source_name = "G7 Secours"
+group = "camera_principale"
+enabled_by_default = false
+
+[[video_sources]]
+id = "xiaomi_arriere"
+label = "Xiaomi 11T grand angle"
+type = "srt"
+obs_source_name = "Xiaomi Arriere"
+group = "camera_principale"
+enabled_by_default = false
+srt_port = 9001
+
+[[video_sources]]
+id = "xiaomi_selfie"
+label = "Xiaomi 11T selfie"
+type = "srt"
+obs_source_name = "Xiaomi Selfie"
+group = "vignette_visage"
+enabled_by_default = true
+srt_port = 9000
+
+# Liste de presets amenée à évoluer selon les usages.
+[[presets]]
+id = "sans_reperes"
+label = "Sans repères"
+activer = []
+desactiver = ["carte", "vitesse"]
+
+[[presets]]
+id = "trajet"
+label = "Trajet"
+activer = ["carte", "vitesse"]
+desactiver = []

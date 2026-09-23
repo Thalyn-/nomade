@@ -47,6 +47,53 @@ velora_url = ""
 botrix_url = ""
 custom_url = ""
 
+[[video_sources]]
+id = "g7_principal"
+label = "Lumix G7 principal"
+type = "capture_usb"
+obs_source_name = "G7 Principal"
+group = "camera_principale"
+enabled_by_default = true
+
+[[video_sources]]
+id = "g7_secours"
+label = "Lumix G7 secours"
+type = "capture_usb"
+obs_source_name = "G7 Secours"
+group = "camera_principale"
+enabled_by_default = false
+
+[[video_sources]]
+id = "xiaomi_arriere"
+label = "Xiaomi 11T grand angle"
+type = "srt"
+obs_source_name = "Xiaomi Arriere"
+group = "camera_principale"
+enabled_by_default = false
+srt_port = 9001
+
+[[video_sources]]
+id = "xiaomi_selfie"
+label = "Xiaomi 11T selfie"
+type = "srt"
+obs_source_name = "Xiaomi Selfie"
+group = "vignette_visage"
+enabled_by_default = true
+srt_port = 9000
+
+# Liste évolutive : adaptez ces presets à votre usage réel.
+[[presets]]
+id = "sans_reperes"
+label = "Sans repères"
+activer = []
+desactiver = ["carte", "vitesse"]
+
+[[presets]]
+id = "trajet"
+label = "Trajet"
+activer = ["carte", "vitesse"]
+desactiver = []
+
 [display]
 window_geometry = "1024x600"
 show_chat_panel = true

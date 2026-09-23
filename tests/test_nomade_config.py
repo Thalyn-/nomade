@@ -161,6 +161,474 @@ class NomadeConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(ErreurConfiguration, "nomade.local.toml"):
                 charger_configuration(repertoire_depot=repo)
 
+    def test_valide_video_sources_et_presets(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[video_sources]]
+                    id = "g7_principal"
+                    label = "Lumix G7 principal"
+                    type = "capture_usb"
+                    obs_source_name = "G7 Principal"
+                    group = "camera_principale"
+                    enabled_by_default = true
+
+                    [[video_sources]]
+                    id = "xiaomi_arriere"
+                    label = "Xiaomi 11T grand angle"
+                    type = "srt"
+                    obs_source_name = "Xiaomi Arriere"
+                    group = "camera_principale"
+                    enabled_by_default = false
+                    srt_port = 9001
+
+                    [[presets]]
+                    id = "sans_reperes"
+                    label = "Sans repères"
+                    activer = []
+                    desactiver = ["carte", "vitesse"]
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            configuration = charger_configuration(repertoire_depot=repo)
+
+            self.assertEqual(len(configuration["video_sources"]), 2)
+            self.assertEqual(configuration["video_sources"][1]["type"], "srt")
+            self.assertEqual(configuration["video_sources"][1]["srt_port"], 9001)
+            self.assertEqual(configuration["presets"][0]["id"], "sans_reperes")
+
+    def test_refuse_un_type_video_source_invalide(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[video_sources]]
+                    id = "camera_test"
+                    label = "Camera Test"
+                    type = "ndi"
+                    obs_source_name = "Camera Test"
+                    group = "camera_principale"
+                    enabled_by_default = true
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "type invalide"):
+                charger_configuration(repertoire_depot=repo)
+
+    def test_refuse_une_video_source_sans_group(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[video_sources]]
+                    id = "camera_test"
+                    label = "Camera Test"
+                    type = "capture_usb"
+                    obs_source_name = "Camera Test"
+                    enabled_by_default = true
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "doit définir group"):
+                charger_configuration(repertoire_depot=repo)
+
+    def test_refuse_des_ids_video_sources_dupliques(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[video_sources]]
+                    id = "camera_test"
+                    label = "Camera Test 1"
+                    type = "capture_usb"
+                    obs_source_name = "Camera Test 1"
+                    group = "camera_principale"
+                    enabled_by_default = true
+
+                    [[video_sources]]
+                    id = "camera_test"
+                    label = "Camera Test 2"
+                    type = "webcam"
+                    obs_source_name = "Camera Test 2"
+                    group = "camera_principale"
+                    enabled_by_default = false
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "id dupliqué"):
+                charger_configuration(repertoire_depot=repo)
+
+    def test_refuse_un_preset_avec_identifiant_inconnu(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[presets]]
+                    id = "preset_test"
+                    label = "Preset test"
+                    activer = ["source_inconnue"]
+                    desactiver = []
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "identifiant est inconnu"):
+                charger_configuration(repertoire_depot=repo)
+
+    def test_refuse_un_enabled_by_default_non_booleen(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[video_sources]]
+                    id = "camera_test"
+                    label = "Camera Test"
+                    type = "capture_usb"
+                    obs_source_name = "Camera Test"
+                    group = "camera_principale"
+                    enabled_by_default = "false"
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "booléen"):
+                charger_configuration(repertoire_depot=repo)
+
+    def test_refuse_un_srt_port_non_numerique(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[video_sources]]
+                    id = "xiaomi_arriere"
+                    label = "Xiaomi"
+                    type = "srt"
+                    obs_source_name = "Xiaomi Arriere"
+                    group = "camera_principale"
+                    enabled_by_default = true
+                    srt_port = "abc"
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "srt_port invalide"):
+                charger_configuration(repertoire_depot=repo)
+
+    def test_convertit_srt_port_chaine_en_entier(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[video_sources]]
+                    id = "xiaomi_arriere"
+                    label = "Xiaomi"
+                    type = "srt"
+                    obs_source_name = "Xiaomi Arriere"
+                    group = "camera_principale"
+                    enabled_by_default = true
+                    srt_port = "9001"
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            configuration = charger_configuration(repertoire_depot=repo)
+            self.assertEqual(configuration["video_sources"][0]["srt_port"], 9001)
+            self.assertIsInstance(configuration["video_sources"][0]["srt_port"], int)
+
+    def test_refuse_un_identifiant_vide_dans_un_preset(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[presets]]
+                    id = "preset_test"
+                    label = "Preset test"
+                    activer = [" "]
+                    desactiver = []
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "identifiant vide"):
+                charger_configuration(repertoire_depot=repo)
+
+    def test_refuse_un_srt_port_sur_source_non_srt(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[video_sources]]
+                    id = "webcam"
+                    label = "Webcam"
+                    type = "webcam"
+                    obs_source_name = "Webcam"
+                    group = "camera_principale"
+                    enabled_by_default = true
+                    srt_port = 9000
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "ne peut définir srt_port"):
+                charger_configuration(repertoire_depot=repo)
+
+    def test_refuse_des_ids_presets_dupliques(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[presets]]
+                    id = "preset_test"
+                    label = "Preset 1"
+                    activer = []
+                    desactiver = []
+
+                    [[presets]]
+                    id = "preset_test"
+                    label = "Preset 2"
+                    activer = []
+                    desactiver = []
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "presets contient un id dupliqué"):
+                charger_configuration(repertoire_depot=repo)
+
+    def test_refuse_un_id_preset_vide(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[presets]]
+                    id = ""
+                    label = "Preset sans id"
+                    activer = []
+                    desactiver = []
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "preset doit définir un id non vide"):
+                charger_configuration(repertoire_depot=repo)
+
+    def test_refuse_un_preset_activer_non_liste(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[presets]]
+                    id = "preset_test"
+                    label = "Preset test"
+                    activer = "carte"
+                    desactiver = []
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "doivent être des listes"):
+                charger_configuration(repertoire_depot=repo)
+
+    def test_refuse_plusieurs_sources_par_defaut_dans_un_meme_groupe(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[video_sources]]
+                    id = "camera_a"
+                    label = "Camera A"
+                    type = "capture_usb"
+                    obs_source_name = "Camera A"
+                    group = "camera_principale"
+                    enabled_by_default = true
+
+                    [[video_sources]]
+                    id = "camera_b"
+                    label = "Camera B"
+                    type = "capture_usb"
+                    obs_source_name = "Camera B"
+                    group = "camera_principale"
+                    enabled_by_default = true
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "qu'une seule source enabled_by_default"):
+                charger_configuration(repertoire_depot=repo)
+
+    def test_refuse_un_preset_activant_plusieurs_sources_du_meme_groupe(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[video_sources]]
+                    id = "camera_a"
+                    label = "Camera A"
+                    type = "capture_usb"
+                    obs_source_name = "Camera A"
+                    group = "camera_principale"
+                    enabled_by_default = true
+
+                    [[video_sources]]
+                    id = "camera_b"
+                    label = "Camera B"
+                    type = "capture_usb"
+                    obs_source_name = "Camera B"
+                    group = "camera_principale"
+                    enabled_by_default = false
+
+                    [[presets]]
+                    id = "preset_test"
+                    label = "Preset test"
+                    activer = ["camera_a", "camera_b"]
+                    desactiver = []
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "active plusieurs sources du groupe"):
+                charger_configuration(repertoire_depot=repo)
+
+    def test_refuse_un_preset_avec_identifiant_dans_activer_et_desactiver(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[presets]]
+                    id = "preset_test"
+                    label = "Preset test"
+                    activer = ["carte"]
+                    desactiver = ["carte"]
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "activer et desactiver"):
+                charger_configuration(repertoire_depot=repo)
+
+    def test_accepte_un_preset_qui_desactive_et_active_deux_sources_dun_meme_groupe(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[video_sources]]
+                    id = "camera_a"
+                    label = "Camera A"
+                    type = "capture_usb"
+                    obs_source_name = "Camera A"
+                    group = "camera_principale"
+                    enabled_by_default = true
+
+                    [[video_sources]]
+                    id = "camera_b"
+                    label = "Camera B"
+                    type = "capture_usb"
+                    obs_source_name = "Camera B"
+                    group = "camera_principale"
+                    enabled_by_default = false
+
+                    [[presets]]
+                    id = "preset_switch"
+                    label = "Switch"
+                    activer = ["camera_b"]
+                    desactiver = ["camera_a"]
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            configuration = charger_configuration(repertoire_depot=repo)
+            self.assertEqual(configuration["presets"][0]["id"], "preset_switch")
+
 
 if __name__ == "__main__":
     unittest.main()

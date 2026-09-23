@@ -23,5 +23,14 @@
   "sensor_weather": "Météo",
   "sensor_not_available": "n/d",
   "obs_connection_error": "Connexion OBS impossible. Vérifiez le lancement OBS local et obs-websocket sur 127.0.0.1.",
-  "obs_host_local_only": "Par sécurité, l'hôte OBS doit rester local (127.0.0.1, localhost ou ::1)."
+  "obs_host_local_only": "Par sécurité, l'hôte OBS doit rester local (127.0.0.1, localhost ou ::1).",
+  "frame_presets": "Préréglages",
+  "frame_video_main": "Caméra principale",
+  "frame_video_face": "Vignette visage",
+  "frame_video_group": "Groupe vidéo : {group}",
+  "video_source_default_label": "Source vidéo {id}",
+  "preset_default_label": "Preset {id}",
+  "status_preset_applied": "Preset appliqué : {preset}",
+  "status_preset_error": "Erreur preset {preset} : {error}",
+  "status_group_disabled": "Groupe vidéo désactivé : {group}"
 }
