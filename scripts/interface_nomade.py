@@ -314,32 +314,41 @@ class ApplicationNomade(tk.Tk):
         if preset is None:
             return
         try:
-            etats_finaux: dict[str, bool] = {}
-            for identifiant in preset["desactiver"]:
-                etats_finaux[identifiant] = False
-            for identifiant in preset["activer"]:
-                etats_finaux[identifiant] = True
-
             groupes_a_recalculer: dict[str, str] = {}
-            for identifiant, actif in etats_finaux.items():
+            sources_desactivees_par_groupe: dict[str, set[str]] = {}
+            source_activee_par_groupe: dict[str, str] = {}
+
+            for identifiant in preset["desactiver"]:
                 if identifiant in self.variables_overlays:
-                    self.variables_overlays[identifiant].set(actif)
+                    self.variables_overlays[identifiant].set(False)
                     self._basculer_overlay(identifiant)
                     continue
                 if identifiant not in self.sources_video_par_id:
                     continue
                 source = self.sources_video_par_id[identifiant]
                 identifiant_groupe = source["group"]
-                selection = self.variables_groupes_video[identifiant_groupe].get()
-                if identifiant_groupe not in groupes_a_recalculer:
-                    groupes_a_recalculer[identifiant_groupe] = selection
-                if actif:
-                    groupes_a_recalculer[identifiant_groupe] = identifiant
-                elif groupes_a_recalculer[identifiant_groupe] == identifiant:
-                    groupes_a_recalculer[identifiant_groupe] = ""
+                sources_desactivees_par_groupe.setdefault(identifiant_groupe, set()).add(identifiant)
+                groupes_a_recalculer.setdefault(identifiant_groupe, self.variables_groupes_video[identifiant_groupe].get())
 
-            for identifiant_groupe, selection_finale in groupes_a_recalculer.items():
-                self.variables_groupes_video[identifiant_groupe].set(selection_finale)
+            for identifiant in preset["activer"]:
+                if identifiant in self.variables_overlays:
+                    self.variables_overlays[identifiant].set(True)
+                    self._basculer_overlay(identifiant)
+                    continue
+                if identifiant not in self.sources_video_par_id:
+                    continue
+                source = self.sources_video_par_id[identifiant]
+                identifiant_groupe = source["group"]
+                source_activee_par_groupe[identifiant_groupe] = identifiant
+                groupes_a_recalculer.setdefault(identifiant_groupe, self.variables_groupes_video[identifiant_groupe].get())
+
+            for identifiant_groupe, selection_initiale in groupes_a_recalculer.items():
+                selection_courante = selection_initiale
+                if selection_courante in sources_desactivees_par_groupe.get(identifiant_groupe, set()):
+                    selection_courante = ""
+                if identifiant_groupe in source_activee_par_groupe:
+                    selection_courante = source_activee_par_groupe[identifiant_groupe]
+                self.variables_groupes_video[identifiant_groupe].set(selection_courante)
                 self._selectionner_source_groupe(identifiant_groupe)
 
             nom_preset = preset["label"] or self._texte("preset_default_label", id=identifiant_preset)

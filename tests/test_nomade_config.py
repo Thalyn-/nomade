@@ -591,6 +591,44 @@ class NomadeConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(ErreurConfiguration, "activer et desactiver"):
                 charger_configuration(repertoire_depot=repo)
 
+    def test_accepte_un_preset_qui_desactive_et_active_deux_sources_dun_meme_groupe(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[video_sources]]
+                    id = "camera_a"
+                    label = "Camera A"
+                    type = "capture_usb"
+                    obs_source_name = "Camera A"
+                    group = "camera_principale"
+                    enabled_by_default = true
+
+                    [[video_sources]]
+                    id = "camera_b"
+                    label = "Camera B"
+                    type = "capture_usb"
+                    obs_source_name = "Camera B"
+                    group = "camera_principale"
+                    enabled_by_default = false
+
+                    [[presets]]
+                    id = "preset_switch"
+                    label = "Switch"
+                    activer = ["camera_b"]
+                    desactiver = ["camera_a"]
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            configuration = charger_configuration(repertoire_depot=repo)
+            self.assertEqual(configuration["presets"][0]["id"], "preset_switch")
+
 
 if __name__ == "__main__":
     unittest.main()
