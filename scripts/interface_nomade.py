@@ -314,10 +314,34 @@ class ApplicationNomade(tk.Tk):
         if preset is None:
             return
         try:
+            etats_finaux: dict[str, bool] = {}
             for identifiant in preset["desactiver"]:
-                self._appliquer_etat_identifiant(identifiant, False)
+                etats_finaux[identifiant] = False
             for identifiant in preset["activer"]:
-                self._appliquer_etat_identifiant(identifiant, True)
+                etats_finaux[identifiant] = True
+
+            groupes_a_recalculer: dict[str, str] = {}
+            for identifiant, actif in etats_finaux.items():
+                if identifiant in self.variables_overlays:
+                    self.variables_overlays[identifiant].set(actif)
+                    self._basculer_overlay(identifiant)
+                    continue
+                if identifiant not in self.sources_video_par_id:
+                    continue
+                source = self.sources_video_par_id[identifiant]
+                identifiant_groupe = source["group"]
+                selection = self.variables_groupes_video[identifiant_groupe].get()
+                if identifiant_groupe not in groupes_a_recalculer:
+                    groupes_a_recalculer[identifiant_groupe] = selection
+                if actif:
+                    groupes_a_recalculer[identifiant_groupe] = identifiant
+                elif groupes_a_recalculer[identifiant_groupe] == identifiant:
+                    groupes_a_recalculer[identifiant_groupe] = ""
+
+            for identifiant_groupe, selection_finale in groupes_a_recalculer.items():
+                self.variables_groupes_video[identifiant_groupe].set(selection_finale)
+                self._selectionner_source_groupe(identifiant_groupe)
+
             nom_preset = preset["label"] or self._texte("preset_default_label", id=identifiant_preset)
             self.texte_statut.set(self._texte("status_preset_applied", preset=nom_preset))
         except Exception as exc:  # pragma: no cover

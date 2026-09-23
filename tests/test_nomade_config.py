@@ -354,6 +354,32 @@ class NomadeConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(ErreurConfiguration, "srt_port invalide"):
                 charger_configuration(repertoire_depot=repo)
 
+    def test_convertit_srt_port_chaine_en_entier(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[video_sources]]
+                    id = "xiaomi_arriere"
+                    label = "Xiaomi"
+                    type = "srt"
+                    obs_source_name = "Xiaomi Arriere"
+                    group = "camera_principale"
+                    enabled_by_default = true
+                    srt_port = "9001"
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            configuration = charger_configuration(repertoire_depot=repo)
+            self.assertEqual(configuration["video_sources"][0]["srt_port"], 9001)
+            self.assertIsInstance(configuration["video_sources"][0]["srt_port"], int)
+
     def test_refuse_un_identifiant_vide_dans_un_preset(self) -> None:
         with tempfile.TemporaryDirectory() as dossier:
             repo = Path(dossier)
@@ -449,6 +475,28 @@ class NomadeConfigTests(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(ErreurConfiguration, "preset doit définir un id non vide"):
+                charger_configuration(repertoire_depot=repo)
+
+    def test_refuse_un_preset_activer_non_liste(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            repo = Path(dossier)
+            config_dir = repo / "config"
+            config_dir.mkdir()
+            (config_dir / "nomade.toml").write_text(CONFIG_TOML_MINIMAL, encoding="utf-8")
+            (config_dir / "nomade.local.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [[presets]]
+                    id = "preset_test"
+                    label = "Preset test"
+                    activer = "carte"
+                    desactiver = []
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ErreurConfiguration, "doivent être des listes"):
                 charger_configuration(repertoire_depot=repo)
 
 
