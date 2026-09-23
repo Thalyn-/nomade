@@ -1,16 +1,56 @@
 # nomade
 
-Solution locale de diffusion en direct pour Raspberry Pi 4B sous DietPi Bookworm, pensée pour un direct nomade avec OBS Studio, un téléphone Xiaomi 11T et une liaison capteurs la plus indépendante possible de la 5G.
+Solution locale de diffusion en direct pour Raspberry Pi 4B sous DietPi Bookworm, pensée pour un direct nomade avec OBS Studio, un téléphone Xiaomi 11T et une liaison capteurs la plus indépendante possible du réseau mobile utilisé pour la diffusion.
 
 ## Objectif
 
 Ce dépôt fournit une base **simple, locale, robuste et traduisible** pour :
 
-- préparer les scènes et sources OBS avec l’interface complète quand c’est nécessaire ;
-- lancer le direct avec un démarrage OBS allégé, sans dépendre d’OBS Studio ouvert manuellement en mode complet ;
+- préparer les scènes et sources OBS avec l'interface complète quand c'est nécessaire ;
+- lancer le direct avec un démarrage OBS allégé, sans dépendre d'OBS Studio ouvert manuellement en mode complet ;
 - piloter localement la diffusion et quelques sources depuis un écran tactile relié au Raspberry ;
 - recevoir des capteurs via MQTT sur une liaison Bluetooth distincte du tethering 5G, puis les écrire dans un fichier JSON local ;
 - garder `obs-websocket` en boucle locale (`127.0.0.1`) pour ne pas exposer le contrôle OBS sur le réseau mobile.
+
+## Installation fraîche de DietPi (avant d'installer nomade)
+
+Cette section s'adresse à une personne qui repart d'une carte mémoire vierge, sans DietPi déjà installé. Elle décrit uniquement les étapes nécessaires pour obtenir un Raspberry Pi 4B prêt à recevoir nomade. Pour les cas non couverts ici, reportez-vous au site officiel de DietPi.
+
+1. **Récupérer l'image DietPi**
+   - Téléchargez l'image DietPi correspondant au Raspberry Pi 4B (base Bookworm/Debian 12) depuis le site officiel : https://dietpi.com/
+2. **Créer la carte mémoire de démarrage**
+   - Utilisez un outil d'écriture d'image disque pour copier le fichier téléchargé sur la carte mémoire.
+   - Plusieurs outils conviennent, au choix selon votre système : Raspberry Pi Imager, balenaEtcher ou Win32 Disk Imager. Aucun de ces choix n'est obligatoire, retenez celui qui vous convient.
+3. **Premier démarrage du Raspberry Pi**
+   - Insérez la carte mémoire dans le Raspberry Pi, branchez un écran et un clavier (ou préparez un accès par le réseau si vous maîtrisez déjà cette méthode), puis mettez sous tension.
+4. **Première connexion**
+   - Identifiez-vous avec les comptes par défaut de DietPi : nom d'utilisateur `root` (ou `dietpi`), mot de passe `dietpi`.
+   - DietPi vous demandera normalement de changer ce mot de passe par défaut dès la première connexion : faites-le, pour votre sécurité.
+5. **Paramétrage initial (`dietpi-config`)**
+   - Réglez au minimum la langue du clavier, le fuseau horaire, ainsi que la connexion réseau (Wi-Fi ou câble Ethernet) si ce n'est pas déjà fait automatiquement.
+6. **Installation des logiciels de base (`dietpi-software`)**
+   - Cet outil se lance normalement tout seul après le premier paramétrage. S'il ne se lance pas automatiquement, tapez la commande `dietpi-software`.
+   - Dans la liste des logiciels proposés, section Affichage (« Display »), choisissez **LXDE** : il s'agit d'un environnement de bureau graphique léger, adapté au Raspberry Pi. C'est ce bureau qui permettra ensuite d'afficher OBS et l'interface tactile de nomade.
+   - Vous pouvez également installer ici des outils utiles comme `git`, si la liste vous le propose.
+7. **Mise à jour du système**
+   - Une fois le bureau installé, mettez le système à jour avant d'aller plus loin :
+
+```bash
+apt-get update && apt-get upgrade -y
+```
+
+8. **Récupération du dépôt nomade**
+   - Installez `git` si nécessaire (`apt-get install -y git`), puis récupérez le dépôt :
+
+```bash
+git clone https://github.com/Thalyn-/nomade.git
+cd nomade
+```
+
+9. **Installation d'OBS et des dépendances de nomade**
+   - Le paquet OBS fourni par défaut sur cette architecture ne contient pas la Source Navigateur : le dépôt installe donc un paquet communautaire (Pi-Apps) qui l'inclut. Cette étape, ainsi que l'installation de Python et des autres dépendances, est prise en charge par le script d'installation décrit dans la section [Installation (DietPi Bookworm)](#installation-dietpi-bookworm) ci-dessous.
+
+Une fois ces neuf étapes réalisées, votre Raspberry Pi dispose d'un environnement graphique fonctionnel et du dépôt nomade en place : vous pouvez enchaîner directement avec la procédure d'installation détaillée plus bas dans ce document.
 
 ## Architecture retenue
 
@@ -21,11 +61,11 @@ Ce dépôt fournit une base **simple, locale, robuste et traduisible** pour :
 - **Direct OBS** : `scripts/lancer_obs_direct.sh`
   - profil de direct fixe dédié ;
   - options OBS natives réellement disponibles sur OBS 30.2.x : `--profile`, `--collection`, `--scene`, `--minimize-to-tray`, `--disable-missing-files-check`, `--startstreaming` en option ;
-  - **pas de vrai mode headless** : OBS Studio ne fournit pas ici de mode sans interface adapté à ce besoin. Le meilleur compromis natif reste donc un démarrage réduit, avec profil figé et fenêtre minimisée si l’environnement graphique le permet.
+  - **pas de vrai mode headless** : OBS Studio ne fournit pas ici de mode sans interface adapté à ce besoin. Le meilleur compromis natif reste donc un démarrage réduit, avec profil figé et fenêtre réduite.
 - **Interface locale** : `scripts/lancer_nomade.sh` puis `scripts/interface_nomade.py`
-  - démarre l’interface Python ;
-  - démarre aussi OBS direct allégé si OBS n’est pas déjà lancé ;
-  - attend la disponibilité d’`obs-websocket` sur `127.0.0.1`.
+  - démarre l'interface Python ;
+  - démarre aussi OBS direct allégé si OBS n'est pas déjà lancé ;
+  - attend la disponibilité d'`obs-websocket` sur `127.0.0.1`.
 - **Configuration centralisée** : `config/nomade.toml` puis `config/nomade.local.toml`
   - valeurs par défaut suivies dans Git ;
   - surcharge locale ignorée par Git ;
@@ -63,11 +103,11 @@ Variables utiles :
 - `NOMADE_OBS_PROFIL_DIRECT` : nom du profil préparé/fixe (défaut : `Nomade direct fixe`)
 - `NOMADE_OBS_COLLECTION` : collection de scènes à ouvrir
 - `NOMADE_OBS_SCENE` : scène initiale
-- `NOMADE_OBS_AUTOSTART_DIFFUSION=1` : ajoute `--startstreaming` si l’on veut démarrer la diffusion dès l’ouverture d’OBS
+- `NOMADE_OBS_AUTOSTART_DIFFUSION=1` : ajoute `--startstreaming` si l'on veut démarrer la diffusion dès l'ouverture d'OBS
 
 ### Limite connue sur le « headless »
 
-Cette version ne prétend pas fournir un « OBS headless » complet, car OBS Studio n’offre pas ici un mode sans interface réellement adapté à la préparation puis au direct. Le dépôt fournit donc :
+Cette version ne prétend pas fournir un « OBS headless » complet, car OBS Studio n'offre pas ici un mode sans interface réellement adapté à la préparation puis au direct. Le dépôt fournit donc :
 
 - **OBS complet** pour la préparation ;
 - **OBS allégé au maximum avec les options natives disponibles** pour le direct.
@@ -75,8 +115,8 @@ Cette version ne prétend pas fournir un « OBS headless » complet, car OBS Stu
 ## Sécurité réseau et `obs-websocket`
 
 - Le contrôle OBS doit rester **local au Raspberry**.
-- L’interface utilise `127.0.0.1` par défaut et refuse les hôtes distants par sécurité.
-- Il ne faut **pas** exposer `obs-websocket` sur `0.0.0.0`, sur l’interface 5G, ni sur une interface de tethering.
+- L'interface utilise `127.0.0.1` par défaut et refuse les hôtes distants par sécurité.
+- Il ne faut **pas** exposer `obs-websocket` sur `0.0.0.0`, sur l'interface 5G, ni sur une interface de tethering.
 - Le transport des capteurs du téléphone ne doit pas être confondu avec le contrôle OBS : ce sont deux chemins distincts.
 
 ## Configuration centralisée
@@ -96,12 +136,12 @@ python3 scripts/nomade_config.py --diagnostic
 
 La configuration couvre notamment :
 
-- la langue de l’interface ;
+- la langue de l'interface ;
 - les adresses et ports OBS/MQTT ;
-- l’interface réseau capteurs (`bnep0` par défaut) et les informations Bluetooth utiles ;
+- l'interface réseau capteurs (`bnep0` par défaut) et les informations Bluetooth utiles ;
 - les scènes, profils et sources OBS ;
 - le service de chat multicanal et la source Navigateur OBS associée ;
-- quelques préférences d’affichage et fonctions activables ;
+- quelques préférences d'affichage et fonctions activables ;
 - les emplacements du dépôt, du venv Python, des données et des journaux.
 
 ### Sources vidéo interchangeables et groupes exclusifs
@@ -109,14 +149,14 @@ La configuration couvre notamment :
 La configuration accepte désormais une liste `[[video_sources]]` :
 
 - `id` : identifiant stable côté Nomade ;
-- `label` : libellé affiché dans l’interface tactile ;
+- `label` : libellé affiché dans l'interface tactile ;
 - `type` : `capture_usb`, `srt` ou `webcam` ;
 - `obs_source_name` : nom exact de la source dans OBS ;
 - `group` : groupe fonctionnel exclusif ;
 - `enabled_by_default` : état initial ;
 - `srt_port` : optionnel (informatif) pour les sources `srt`.
 
-Les sources d’un même `group` sont mutuellement exclusives dans l’interface : sélectionner une source désactive automatiquement les autres du même groupe dans OBS.
+Les sources d'un même `group` sont mutuellement exclusives dans l'interface : sélectionner une source désactive automatiquement les autres du même groupe dans OBS.
 
 Exemple typique :
 
@@ -131,11 +171,11 @@ Pour une source SRT (ex. Larix Broadcaster sur Xiaomi), configurez côté OBS un
 
 `srt://0.0.0.0:9000?mode=listener`
 
-Le flux est reçu nativement par OBS, puis Nomade ne fait qu’activer/désactiver la source via websocket.
+Le flux est reçu nativement par OBS, puis Nomade ne fait qu'activer/désactiver la source via websocket.
 
 ### Presets (préréglages)
 
-La liste `[[presets]]` permet d’appliquer en un clic plusieurs actions :
+La liste `[[presets]]` permet d'appliquer en un clic plusieurs actions :
 
 - `id`, `label`
 - `activer` : identifiants à activer
@@ -150,7 +190,7 @@ Exemples inclus :
 
 ### À propos de `/opt/nomade-venv`
 
-Le chemin par défaut du venv reste `/opt/nomade-venv`. C’est un **choix d’organisation** classique pour une application tierce sous Debian/DietPi, pas un gain de performances. Le dépôt évite ainsi d’encourager une installation de l’application sous `/root`.
+Le chemin par défaut du venv reste `/opt/nomade-venv`. C'est un **choix d'organisation** classique pour une application tierce sous Debian/DietPi, pas un gain de performances. Le dépôt évite ainsi de mélanger l'environnement Python de nomade avec le système.
 
 Si une installation existante a déjà été préparée sous `/root/nomade`, elle peut être conservée en surchargeant localement :
 
@@ -159,17 +199,17 @@ Si une installation existante a déjà été préparée sous `/root/nomade`, ell
 python_venv = "/root/nomade/myvenv"
 ```
 
-Cette surcharge permet une migration progressive sans casser l’installation actuelle.
+Cette surcharge permet une migration progressive sans casser l'installation actuelle.
 
 ## Interface locale : Tkinter conservé
 
-L’interface principale reste **Python/Tkinter**. Ce choix est volontaire pour un Raspberry Pi 4B en direct :
+L'interface principale reste **Python/Tkinter**. Ce choix est volontaire pour un Raspberry Pi 4B en direct :
 
 - pas de serveur web supplémentaire à maintenir ;
 - pas de navigateur obligatoire à ouvrir pendant le live ;
-- moins de RAM et de moteur de rendu qu’une page Firefox/Chromium dédiée.
+- moins de RAM et de moteur de rendu qu'une page Firefox/Chromium dédiée.
 
-Une interface web locale pourrait être étudiée plus tard comme extension facultative, mais elle n’est **pas** implémentée dans cette évolution.
+Une interface web locale pourrait être étudiée plus tard comme extension facultative, mais elle n'est **pas** implémentée dans cette évolution.
 
 ## Installation (DietPi Bookworm)
 
@@ -195,15 +235,15 @@ Le script installe notamment :
 - OBS Studio avec Source Navigateur via le paquet communautaire Pi-Apps ;
 - les répertoires de données et journaux définis dans `config/nomade.toml`.
 
-## Installation d’OBS avec Source Navigateur
+## Installation d'OBS avec Source Navigateur
 
-Le paquet officiel `apt install obs-studio` fourni sur Debian Bookworm ARM64 n’inclut pas la Source Navigateur sur cette cible. Le dépôt conserve donc `scripts/installer_obs_navigateur.sh`, qui installe le paquet communautaire Pi-Apps `obs-studio-30.2.2-1-arm64-bookworm.deb`.
+Le paquet officiel `apt install obs-studio` fourni sur Debian Bookworm ARM64 n'inclut pas la Source Navigateur sur cette cible. Le dépôt conserve donc `scripts/installer_obs_navigateur.sh`, qui installe à la place un paquet communautaire (Pi-Apps) incluant cette fonctionnalité.
 
 Ce choix est volontaire :
 
 - **on ne supprime pas** la Source Navigateur ;
-- on garde l’accélération `MESA_GL_VERSION_OVERRIDE=3.3` nécessaire au Raspberry Pi 4 ;
-- on évite de faire croire qu’un paquet Debian standard suffirait à reproduire le même comportement.
+- on garde l'accélération `MESA_GL_VERSION_OVERRIDE=3.3` nécessaire au Raspberry Pi 4 ;
+- on évite de faire croire qu'un paquet Debian standard suffirait à reproduire le même comportement.
 
 ## Interface locale de pilotage
 
@@ -216,9 +256,9 @@ export OBS_MDP='votre_mot_de_passe'
 
 Comportement :
 
-- si aucun processus `obs` n’est déjà lancé, le script démarre `scripts/lancer_obs_direct.sh` ;
-- l’interface attend ensuite `obs-websocket` pendant `30` secondes par défaut ;
-- l’hôte OBS reste fixé à `127.0.0.1` via le script de lancement.
+- si aucun processus `obs` n'est déjà lancé, le script démarre `scripts/lancer_obs_direct.sh` ;
+- l'interface attend ensuite `obs-websocket` pendant `30` secondes par défaut ;
+- l'hôte OBS reste fixé à `127.0.0.1` via le script de lancement.
 
 Variables utiles :
 
@@ -233,7 +273,7 @@ python3 scripts/nomade_config.py --diagnostic
 
 ## Internationalisation
 
-Les textes visibles de l’interface sont externalisés dans :
+Les textes visibles de l'interface sont externalisés dans :
 
 - `locales/fr.json` (par défaut)
 - `locales/en.json` (repli anglais minimal)
@@ -244,9 +284,9 @@ Pour choisir la langue :
 NOMADE_LANGUE=en ./scripts/lancer_nomade.sh
 ```
 
-Les **noms de scènes**, **noms de sources** et **messages d’erreur techniques détaillés** restent configurables et ne sont pas traduits automatiquement.
+Les **noms de scènes**, **noms de sources** et **messages d'erreur techniques détaillés** restent configurables et ne sont pas traduits automatiquement.
 
-Le français reste la langue par défaut des textes destinés à l’utilisateur.
+Le français reste la langue par défaut des textes destinés à l'utilisateur.
 
 Pour ajouter une autre langue :
 
@@ -275,23 +315,23 @@ Le dépôt privilégie une ingestion capteurs **MQTT locale** pour éviter autan
 
 - les WebSocket venant du téléphone ;
 - le Wi-Fi du hotspot/tethering ;
-- l’USB tethering.
+- l'USB tethering.
 
 Le cas visé est une liaison Bluetooth indépendante, par exemple :
 
 - **Bluetooth PAN / BNEP** entre téléphone et Raspberry ;
 - ou un autre transport Bluetooth réellement compatible avec SensorCast et un courtier MQTT accessible côté Raspberry.
 
-### Important : ce qui n’est pas supposé automatiquement
+### Important : ce qui n'est pas supposé automatiquement
 
 Cette version **ne prétend pas** que SensorCast, Bluetooth PAN, BNEP ou Mosquitto seraient configurés automatiquement par le dépôt. Il faut préparer explicitement :
 
 1. le jumelage Bluetooth ;
 2. le profil réseau Bluetooth réellement utilisé ;
-3. l’adresse IP de l’interface Bluetooth côté Raspberry ;
+3. l'adresse IP de l'interface Bluetooth côté Raspberry ;
 4. la configuration de SensorCast pour publier en MQTT vers ce courtier local.
 
-### Lancement de l’ingestion
+### Lancement de l'ingestion
 
 ```bash
 ./scripts/lancer_capteurs_mqtt.sh \
@@ -310,12 +350,12 @@ Variables ou options disponibles :
 - `NOMADE_MQTT_MOT_DE_PASSE`
 - `NOMADE_FICHIER_CAPTEURS`
 
-### Garantie fonctionnelle de l’ingestion
+### Garantie fonctionnelle de l'ingestion
 
 Le service :
 
 - accepte des messages JSON ;
-- vérifie au minimum que la charge utile est un objet JSON, et que `position`, `reseau` et `meteo` sont des objets s’ils existent ;
+- vérifie au minimum que la charge utile est un objet JSON, et que `position`, `reseau` et `meteo` sont des objets s'ils existent ;
 - écrit `/var/lib/nomade/capteurs.json` de façon atomique ;
 - ignore un message invalide sans arrêter le processus ;
 - tente de se reconnecter automatiquement si la liaison MQTT tombe.
@@ -326,8 +366,8 @@ Le dépôt fournit un exemple minimal dans `examples/mosquitto-bluetooth.conf.ex
 
 Principe recommandé :
 
-- écouter **uniquement** sur l’adresse IP de l’interface Bluetooth (par exemple `bnep0`) ;
-- ne pas écouter sur l’interface 5G ni sur toutes les interfaces.
+- écouter **uniquement** sur l'adresse IP de l'interface Bluetooth (par exemple `bnep0`) ;
+- ne pas écouter sur l'interface 5G ni sur toutes les interfaces.
 
 ## Chat multicanal via Source Navigateur OBS
 
@@ -353,16 +393,16 @@ velora_url = "https://velora.tv/overlay/chat-multi/identifiant-exemple"
 Points importants :
 
 - ne versionnez jamais vos URL personnelles Velora/Botrix ;
-- l’interface Tkinter peut activer/désactiver la source OBS correspondante ;
-- si `sync_chat_browser_source = true`, Nomade met à jour l’URL de la source Navigateur au démarrage ;
+- l'interface Tkinter peut activer/désactiver la source OBS correspondante ;
+- si `sync_chat_browser_source = true`, Nomade met à jour l'URL de la source Navigateur au démarrage ;
 - une URL distante reste une dépendance réseau supplémentaire : vérifiez toujours la confiance accordée au service tiers ;
-- une panne du service de chat ne doit pas empêcher le contrôle local OBS ni l’ingestion MQTT/Bluetooth.
+- une panne du service de chat ne doit pas empêcher le contrôle local OBS ni l'ingestion MQTT/Bluetooth.
 
 ## Diffusion multi-plateforme : préparation seulement
 
-Cette évolution **n’automatise pas** encore le multistream complet, Restream ni la gestion de clés de diffusion.
+Cette évolution **n'automatise pas** encore le multistream complet, Restream ni la gestion de clés de diffusion.
 
-La section `[streaming]` du TOML sert seulement à **préparer des destinations nommées** pour une évolution future, sans secrets. Pour l’instant :
+La section `[streaming]` du TOML sert seulement à **préparer des destinations nommées** pour une évolution future, sans secrets. Pour l'instant :
 
 - préparez vos profils et destinations dans `OBS-Preparation` ;
 - choisissez ensuite le bon profil OBS pour le direct ;
@@ -398,14 +438,14 @@ Vérifications prévues avant demande de fusion :
 
 ## Dépannage
 
-- **L’interface dit que la connexion OBS est impossible**
+- **L'interface dit que la connexion OBS est impossible**
   Vérifier que `obs-websocket` est activé dans OBS, avec mot de passe, sur `127.0.0.1:4455`.
 
-- **OBS s’ouvre mais reste lourd**
-  C’est une limite d’OBS Studio : il n’existe pas ici de mode headless complet pour le direct. Utiliser `scripts/lancer_obs_direct.sh` avec un profil fixe, déjà préparé.
+- **OBS s'ouvre mais reste lourd**
+  C'est une limite d'OBS Studio : il n'existe pas ici de mode headless complet pour le direct. Utiliser `scripts/lancer_obs_direct.sh` avec un profil fixe, déjà préparé.
 
-- **Les capteurs n’arrivent pas**
-  Vérifier d’abord la liaison Bluetooth/PAN, puis le courtier MQTT local, puis le sujet réellement publié par SensorCast.
+- **Les capteurs n'arrivent pas**
+  Vérifier d'abord la liaison Bluetooth/PAN, puis le courtier MQTT local, puis le sujet réellement publié par SensorCast.
 
 - **Je veux vérifier ma configuration sans lancer le direct**
   Exécuter `python3 scripts/nomade_config.py --diagnostic` puis corriger `config/nomade.local.toml` si nécessaire.
@@ -416,7 +456,7 @@ Vérifications prévues avant demande de fusion :
 ## Limites connues
 
 - pas de vrai mode headless OBS dans ce dépôt ;
-- la configuration exacte de SensorCast et du profil réseau Bluetooth dépend du matériel et n’est donc pas imposée silencieusement ;
+- la configuration exacte de SensorCast et du profil réseau Bluetooth dépend du matériel et n'est donc pas imposée silencieusement ;
 - la récupération directe des pulsations de certains objets connectés peut rester limitée selon leurs protocoles ;
-- l’installation OBS repose toujours sur un paquet communautaire Pi-Apps pour conserver la Source Navigateur ;
+- l'installation OBS repose toujours sur un paquet communautaire Pi-Apps pour conserver la Source Navigateur ;
 - le multistream complet reste volontairement reporté à une évolution séparée.
