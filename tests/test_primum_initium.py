@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import tomllib
@@ -18,6 +19,11 @@ from primum_initium import (
     calculer_modifications,
     construire_rapport,
     ecrire_configuration_locale,
+    ecrire_configuration_wifi,
+    decrire_modifications,
+    essentiels_valides,
+    reconnecter_wifi,
+    reseaux_detectes,
 )
 
 
@@ -45,7 +51,7 @@ class PrimumInitiumTests(unittest.TestCase):
             },
             "paquets": {nom: True for nom in (
                 "python3", "python3-venv", "python3-tk", "ffmpeg", "mosquitto",
-                "obs-studio", "avahi-daemon",
+                "obs-studio", "avahi-daemon", "onboard",
             )},
             "venv": True,
             "obs_actif": True,
@@ -106,6 +112,99 @@ class PrimumInitiumTests(unittest.TestCase):
 
             self.assertEqual(changements, {})
             self.assertIsNone(ecrire_configuration_locale(chemin, changements))
+
+    def test_configuration_wifi_sauvegarde_et_protege_le_mot_de_passe(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            chemin = Path(dossier) / "wpa_supplicant.conf"
+            chemin.write_text("country=FR\nnetwork={\n    ssid=\"ancien\"\n}\n", encoding="utf-8")
+
+            sauvegarde = ecrire_configuration_wifi(chemin, "nouveau", "mot-de-passe-test")
+
+            self.assertIsNotNone(sauvegarde)
+            self.assertIn('ssid="nouveau"', chemin.read_text(encoding="utf-8"))
+            self.assertIn('psk="mot-de-passe-test"', chemin.read_text(encoding="utf-8"))
+            self.assertEqual(os.stat(chemin).st_mode & 0o777, 0o600)
+            self.assertEqual(os.stat(sauvegarde).st_mode & 0o777, 0o600)
+
+    def test_configuration_wifi_refuse_les_entrees_invalides(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            with self.assertRaises(ValueError):
+                ecrire_configuration_wifi(Path(dossier) / "wpa.conf", "x" * 33, "court")
+
+    def test_configuration_wifi_accepte_une_cle_hexadecimale_wpa(self) -> None:
+        cle = "a" * 64
+        with tempfile.TemporaryDirectory() as dossier:
+            chemin = Path(dossier) / "wpa.conf"
+            ecrire_configuration_wifi(chemin, "reseau", cle)
+            self.assertIn(f"psk={cle}", chemin.read_text(encoding="utf-8"))
+
+    def test_reconnexion_wifi_affiche_chaque_commande_et_tente_le_dernier_recours(self) -> None:
+        appels = []
+
+        def executer(commande, **_options):
+            appels.append(commande)
+            code = 1 if commande[0] == "ifup" else 0
+            return type("Resultat", (), {"returncode": code, "stdout": "", "stderr": ""})()
+
+        resultat = reconnecter_wifi(executer)
+
+        self.assertEqual(len(resultat), 6)
+        self.assertEqual(appels[-1], ("systemctl", "restart", "networking"))
+
+    def test_reseaux_wifi_sont_extraits_sans_doublons(self) -> None:
+        sortie = 'ESSID:"Reseau A"\nESSID:"Reseau B"\nESSID:"Reseau A"'
+        self.assertEqual(reseaux_detectes(sortie), ["Reseau A", "Reseau B"])
+
+    def test_suivant_est_bloque_tant_que_les_essentiels_manquent(self) -> None:
+        essentiels = {
+            "python3", "python3-venv", "python3-tk", "ffmpeg",
+            "mosquitto", "obs-studio", "avahi-daemon", "onboard",
+        }
+        faits = {
+            "internet": True,
+            "paquets": {nom: True for nom in essentiels},
+            "venv": True,
+            "obs_actif": True,
+            "websocket": "joignable",
+            "navigateur": True,
+            "ip": "10.0.0.2",
+            "avahi_actif": True,
+            "config": {
+                "mqtt": {"network_interface": "bnep0"},
+                "obs": {"scene": "Scene", "source_selfie": "Selfie"},
+                "chat": {"source_name": "Chat"},
+                "video_sources": [],
+            },
+            "scenes": ["Scene"],
+            "sources": ["Selfie", "Chat"],
+        }
+
+        self.assertFalse(essentiels_valides(faits, False))
+        self.assertTrue(essentiels_valides(faits, True))
+        faits["internet"] = False
+        self.assertFalse(essentiels_valides(faits, True))
+
+    def test_diff_configuration_locale_affiche_ancienne_et_nouvelle_valeur(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            chemin = Path(dossier) / "nomade.local.toml"
+            chemin.write_text('[network]\nraspberry_ip = "10.0.0.1"\n', encoding="utf-8")
+            diff = decrire_modifications(
+                chemin,
+                {"raspberry_ip": "10.0.0.2"},
+                {"diff_line": "{key} : {before} -> {after}", "not_configured": "non défini"},
+            )
+            self.assertEqual(diff, "raspberry_ip : 10.0.0.1 -> 10.0.0.2")
+
+    def test_interface_bluetooth_met_a_jour_le_parametre_mqtt_effectif(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            chemin = Path(dossier) / "nomade.local.toml"
+            chemin.write_text('[mqtt]\nnetwork_interface = "bnep0"\n', encoding="utf-8")
+            modifications = calculer_modifications(
+                chemin, {"mqtt.network_interface": "bnep1"}
+            )
+            ecrire_configuration_locale(chemin, modifications)
+            configuration = tomllib.loads(chemin.read_text(encoding="utf-8"))
+            self.assertEqual(configuration["mqtt"]["network_interface"], "bnep1")
 
     def test_modele_obs_contient_les_noms_et_le_port_de_configuration(self) -> None:
         modele = json.loads((ROOT / "examples/nomade-scenes.json").read_text(encoding="utf-8"))

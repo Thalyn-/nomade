@@ -22,6 +22,7 @@ from typing import Any
 
 from obsws_python import ReqClient
 from nomade_config import ErreurConfiguration, afficher_diagnostic, charger_configuration, url_chat_active
+from nomade_secrets import charger_secret_obs
 from nomade_utils import LANGUE_PAR_DEFAUT, charger_traductions, est_hote_obs_local
 
 
@@ -469,6 +470,11 @@ def connecter_obs(cfg: ConfigurationOBS, attente_secondes: int) -> ControleOBS:
 
 
 def main() -> int:
+    erreur_secret = False
+    try:
+        charger_secret_obs(Path(__file__).resolve().parent.parent / "config" / "nomade.secrets")
+    except (OSError, ValueError, json.JSONDecodeError):
+        erreur_secret = True
     args = analyser_arguments()
     try:
         configuration = charger_configuration(
@@ -492,6 +498,9 @@ def main() -> int:
 
     langue = args.langue or os.environ.get("NOMADE_LANGUE") or configuration["general"]["language"] or LANGUE_PAR_DEFAUT
     textes = charger_traductions(langue, Path(__file__).resolve().parent.parent / "locales")
+    if erreur_secret:
+        print(textes["obs_password_file_error"])
+        return 1
     obs_hote = args.obs_hote or configuration["obs"]["host"]
     if not est_hote_obs_local(obs_hote):
         print(textes["obs_host_local_only"])
