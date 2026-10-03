@@ -2,6 +2,78 @@
 
 Solution locale de diffusion en direct pour Raspberry Pi 4B sous DietPi Bookworm, pensée pour un direct nomade avec OBS Studio, un téléphone Xiaomi 11T et une liaison capteurs la plus indépendante possible du réseau mobile utilisé pour la diffusion.
 
+## Avant de commencer : une connexion internet stable
+
+Internet est nécessaire pour télécharger DietPi, récupérer ce dépôt et installer les paquets. Une box reliée en Ethernet est la solution la plus simple. À défaut, un partage de connexion Wi-Fi de téléphone fonctionne, mais son adresse IP et sa passerelle peuvent changer : laissez le Raspberry en DHCP.
+
+### Se connecter au Wi-Fi
+
+1. Si DietPi est accessible, lancez `dietpi-config`, ouvrez le menu réseau, choisissez le Wi-Fi, sélectionnez votre réseau et saisissez sa clé. Redémarrez ou relancez l'interface si DietPi le demande.
+2. Sinon, ouvrez la configuration en administrateur. La commande `sudoedit` conserve le fichier existant et permet de le modifier sans le remplacer à l'aveugle :
+
+```bash
+sudo cp -a /etc/wpa_supplicant/wpa_supplicant.conf \
+  "/etc/wpa_supplicant/wpa_supplicant.conf.bak.$(date +%Y%m%d-%H%M%S)"
+sudoedit /etc/wpa_supplicant/wpa_supplicant.conf
+```
+
+Dans l'éditeur, utilisez ce modèle et remplacez les deux valeurs sur le Raspberry uniquement :
+
+```ini
+country=FR
+ctrl_interface=DIR=/run/wpa_supplicant GROUP=netdev
+update_config=1
+network={
+    ssid="NOM_DU_RESEAU"
+    psk="MOT_DE_PASSE"
+    key_mgmt=WPA-PSK
+}
+```
+
+Remplacez `FR` par le code pays de votre installation si vous êtes ailleurs. N'ajoutez pas `ieee80211d=1` dans la section globale. Gardez le mot de passe entre guillemets et aucun espace avant `psk=`. Les caractères accentués peuvent être mal interprétés par certains éditeurs ; préférez un nom de réseau et un mot de passe sans accents si vous pouvez les choisir. Ne collez jamais le vrai mot de passe dans le dépôt ou dans un journal.
+
+Avec le pilote Wi-Fi `brcmfmac`, évitez que deux gestionnaires pilotent la même interface. Si `ifupdown` utilise `wpa-conf` dans `/etc/network/interfaces.d/wlan0.conf`, laissez-le gérer le Wi-Fi et n'activez pas en parallèle un service `wpa_supplicant-wlan0.service` créé manuellement. Vérifiez d'abord son origine et sa configuration ; désactivez-le seulement s'il a été créé pour cette interface :
+
+```bash
+systemctl status wpa_supplicant-wlan0.service
+sudo systemctl disable --now wpa_supplicant-wlan0.service
+```
+
+Utilisez le DHCP, sans fixer l'adresse du Raspberry : c'est particulièrement important avec un partage 5G dont le réseau peut être en `10.x.x.x`. Si le téléphone le permet, réservez l'adresse du Raspberry dans les appareils connectés. Sur Xiaomi/HyperOS, cherchez **Paramètres > Point d'accès mobile > Appareils connectés** ; cette fonction n'est pas présente sur toutes les versions. Sinon, essayez `dietpi.local` grâce à Avahi, que l'installation Nomade ajoute. Certains téléphones ne résolvent pas les noms `.local` : utilisez alors l'adresse courante affichée par le diagnostic.
+
+### Déconnexions répétées : correctif conditionnel
+
+N'appliquez ceci que si vous constatez réellement une boucle « CONNECTED / DISCONNECTED ». Identifiez d'abord le service ou script Wi-Fi présent sur votre installation :
+
+```bash
+systemctl list-units --all | grep -i wifi
+```
+
+Si `dietpi-wifi-monitor.service` est bien actif et que vous suspectez ses alertes erronées, arrêtez-le après confirmation :
+
+```bash
+sudo systemctl disable --now dietpi-wifi-monitor.service
+```
+
+Si le nom affiché est différent, adaptez la commande au nom réellement trouvé ; ne désactivez pas un service réseau au hasard.
+
+### Kit de secours réseau
+
+Depuis un terminal local, ces commandes permettent de débloquer et relancer le Wi-Fi. Elles peuvent couper brièvement la connexion ; gardez un écran et un clavier à disposition :
+
+```bash
+sudo rfkill unblock wifi
+sudo wpa_cli -i wlan0 reconfigure
+sudo ifdown wlan0 && sudo ifup wlan0
+sudo systemctl restart networking
+ip a
+ping -c 3 deb.debian.org
+```
+
+La dernière commande de relance est un dernier recours, car elle peut interrompre les autres connexions réseau.
+
+Enfin, ne confondez pas les deux flux : SRT transporte la vidéo en **UDP**, sur le port `9001` par défaut ; le contrôle obs-websocket utilise **TCP**, sur `127.0.0.1:4455`. Ces ports et protocoles sont indépendants.
+
 ## Objectif
 
 Ce dépôt fournit une base **simple, locale, robuste et traduisible** pour :
@@ -18,7 +90,7 @@ Cette durée suppose que DietPi, le bureau LXDE et le dépôt sont déjà instal
 
 1. Branchez le Raspberry Pi, son écran et son alimentation ; connectez la clé d'acquisition et le téléphone si vous les utilisez.
 2. Depuis le dépôt, lancez `sudo ./scripts/install_nomade.sh`. Le script installe les dépendances, OBS avec sa Source Navigateur, puis ouvre l'assistant de premier démarrage (ou affiche son diagnostic dans le terminal).
-3. Dans OBS, activez obs-websocket sur `127.0.0.1:4455`, choisissez un mot de passe, puis préparez les scènes et sources. Le modèle est importable avec `./scripts/installer_scenes_obs.sh` ; il faut encore l'adapter au matériel.
+3. PrimumInitium lance OBS en mode préparation s'il n'est pas déjà ouvert. Dans OBS, activez obs-websocket sur `127.0.0.1:4455`, choisissez un mot de passe, puis préparez les scènes et sources. Le modèle est importable avec `./scripts/installer_scenes_obs.sh` ; il faut encore l'adapter au matériel.
 4. Pour un téléphone en SRT, créez dans OBS une Source Média en écoute sur le port UDP `9001`, puis saisissez l'adresse affichée par l'assistant dans Larix Broadcaster.
 5. Lancez `export OBS_MDP='votre_mot_de_passe'` puis `./scripts/lancer_nomade.sh`.
 
@@ -27,7 +99,7 @@ Les préréglages Nomade ne font qu'activer ou désactiver des **sources et scè
 ## 2. Matériel nécessaire
 
 - **Raspberry Pi 4B**, avec une alimentation fiable adaptée (5 V / 3 A recommandés).
-- Carte microSD de bonne qualité, écran et clavier pour l'installation initiale ; un écran tactile est facultatif mais pratique en direct.
+- Carte microSD de bonne qualité, écran et clavier pour l'installation initiale ; un écran tactile est recommandé pour le contrôle du direct et du chat.
 - Connexion réseau pour installer les paquets, puis Wi-Fi ou partage de connexion du téléphone. Une IP fixe sur le Raspberry n'est pas requise.
 - Téléphone Android compatible avec Larix Broadcaster pour l'envoi SRT. IP Webcam peut convenir à un usage plus simple et moins exigeant en énergie ; NDI HX Camera est une alternative propriétaire, non recommandée par défaut.
 - Facultatif : caméra HDMI et clé d'acquisition USB reconnue comme périphérique vidéo Linux (`/dev/video*`), microphone ou casque Bluetooth, ainsi qu'un système de refroidissement adapté aux longs directs.
@@ -84,13 +156,13 @@ sudo ./scripts/install_nomade.sh
 
 Le script installe les outils système, Python/Tk, `ffmpeg`, `avahi-daemon`, Mosquitto et OBS avec la Source Navigateur, puis crée l'environnement Python Nomade. Il lance ensuite PrimumInitium : fenêtre graphique si l'installation est lancée depuis LXDE, rapport de diagnostic dans le terminal sinon. Il ne désactive aucun service système.
 
-Le clavier virtuel libre Onboard est facultatif : utilisez `sudo env NOMADE_INSTALL_ONBOARD=1 ./scripts/install_nomade.sh` pour l'installer. La correction du Wi-Fi et les autres changements système restent des actions explicites de l'assistant.
+L'installation ajoute aussi les outils Wi-Fi (`wpasupplicant`, `iw`, `rfkill`), Avahi et le clavier virtuel libre Onboard. PrimumInitium propose les réglages tactiles et attend une validation explicite avant de permettre de passer à Emissio. La correction du Wi-Fi et les autres changements système restent des actions explicites de l'assistant.
 
 ## 5. Premier lancement validé
 
 Les essais rapportés sur une installation fraîche de DietPi ont validé `scripts/install_nomade.sh`, OBS installé par Pi-Apps avec la Source Navigateur et Larix en SRT sur un partage 5G à IP dynamique de type `10.x.x.x`. Le résultat peut varier selon les versions de DietPi, OBS et les téléphones.
 
-Avant d'attendre un changement dans OBS, vérifiez chaque élément de cette liste :
+À l'ouverture de PrimumInitium, OBS est lancé en mode préparation s'il ne l'est pas déjà. Avant d'attendre un changement dans OBS, vérifiez chaque élément de cette liste :
 
 - [ ] OBS est ouvert et utilise la collection contenant la scène **Scene principale**.
 - [ ] Les sources attendues (caméra USB, sources SRT et éléments visuels) ont été créées et ajoutées à la bonne scène. Importez le modèle avec `./scripts/installer_scenes_obs.sh` si besoin ; ce sont des modèles à adapter à la clé d'acquisition et au téléphone réellement utilisés.
@@ -98,7 +170,15 @@ Avant d'attendre un changement dans OBS, vérifiez chaque élément de cette lis
 - [ ] Si vous testez SRT, Larix est lancé en mode émetteur (caller) et la Source Média OBS en mode écoute (listener). Pour des capteurs, SensorCast et le courtier MQTT doivent également être lancés/configurés.
 - [ ] Le téléphone, la clé vidéo, le micro/casque et le réseau sont connectés si votre scène les utilise.
 
-L'assistant graphique et son mode terminal se lancent avec `./scripts/primum_initium.sh` et `./scripts/primum_initium.sh --diagnostic`. Une proposition d'ouverture automatique au démarrage de LXDE est facultative et peut être retirée depuis le même bouton.
+L'assistant graphique et son mode terminal se lancent avec `./scripts/primum_initium.sh` et `./scripts/primum_initium.sh --diagnostic`. Quand les prérequis essentiels sont validés, PrimumInitium ouvre Emissio pour choisir une plateforme et préparer le service OBS. Une proposition d'ouverture automatique au démarrage de LXDE est facultative et peut être retirée depuis le même bouton.
+
+Emissio (du latin « diffusion ») est également lançable directement avec `./scripts/emissio.py`. Choisissez Twitch, Kick, YouTube, Facebook Live, Velora, Restream.io ou une destination personnalisée. Les serveurs évoluent et varient selon les régions : consultez la documentation de la plateforme et saisissez l'adresse indiquée par celle-ci. La clé RTMP/RTMPS est écrite uniquement dans `service.json` du profil OBS local, avec droits `600` et sauvegarde ; les paramètres SRT sont écrits dans `config/nomade.secrets`, un fichier ignoré par Git et protégé en mode `600`. Aucun secret n'est écrit dans la configuration suivie par Git ou dans les journaux. Le test vérifie uniquement la joignabilité du serveur ; il ne démarre pas de diffusion. Le multistream complet reste hors périmètre ; Restream.io peut servir de destination intermédiaire. Pour SRT en émission, configurez et vérifiez la sortie correspondante dans OBS avant de lancer le direct ; Emissio ne peut pas appliquer cette sortie automatiquement.
+
+Le bouton de PrimumInitium dédié à `OBS_MDP` aide à choisir puis enregistrer ce secret dans `config/nomade.secrets`. Saisissez ensuite le même mot de passe dans les paramètres obs-websocket d'OBS. Le fichier local n'est jamais suivi par Git ; le programme le protège avec les droits `600` et le charge pour les lancements ultérieurs.
+
+### Droits administrateur pour les actions de l'assistant
+
+PrimumInitium demande des droits avec `pkexec` uniquement après confirmation pour écrire la configuration Wi-Fi, relancer le réseau, installer des paquets ou installer la surveillance facultative. Un agent PolicyKit graphique doit être actif dans LXDE pour afficher la demande d'autorisation. Si l'interface n'en dispose pas, ne lancez pas toute l'interface en administrateur : utilisez les commandes de secours de la section réseau dans un terminal avec `sudo`, puis relancez le diagnostic. L'écriture d'informations locales dans le dépôt se fait, elle, avec les droits de l'utilisateur.
 
 Les messages VAAPI « Failed to initialize display » ou « H264 encoding not supported » affichés dans la console d'OBS sont informatifs et normaux sur Raspberry Pi 4 : cette machine ne fournit pas VAAPI.
 
@@ -111,6 +191,15 @@ Vérifiez qu'OBS est ouvert, que son serveur WebSocket est activé, qu'il écout
 ### Wi-Fi instable
 
 Ce correctif est **conditionnel** : ne désactivez `dietpi-wifi-monitor` que si vous constatez réellement une boucle de déconnexions. Confirmez l'action dans PrimumInitium ou exécutez explicitement `sudo systemctl disable --now dietpi-wifi-monitor.service`.
+
+La surveillance automatique Nomade est une autre option, distincte et désactivée par défaut. Installez-la ou retirez-la depuis le bouton correspondant de PrimumInitium ; en terminal, après avoir vérifié le script :
+
+```bash
+sudo ./scripts/installer_watchdog_wifi.sh install
+sudo ./scripts/installer_watchdog_wifi.sh uninstall
+```
+
+Le minuteur réessaie le Wi-Fi toutes les minutes. Il peut interrompre momentanément les connexions : ne l'activez qu'après confirmation.
 
 Si le Wi-Fi ne démarre toujours pas, vérifiez que `/etc/wpa_supplicant/wpa_supplicant.conf` suit cette structure (remplacez les deux valeurs d'exemple sur le Raspberry, jamais dans ce dépôt) :
 
@@ -316,7 +405,7 @@ L'interface principale reste **Python/Tkinter**. Ce choix est volontaire pour un
 
 Une interface web locale pourrait être étudiée plus tard comme extension facultative, mais elle n'est **pas** implémentée dans cette évolution.
 
-PrimumInitium peut aussi activer le simple clic dans PCManFM et installer le clavier virtuel libre Onboard, après confirmation. La création d'un affichage virtuel n'est pas automatisée : le bon réglage dépend de l'écran tactile, du pilote graphique et de la résolution utilisée.
+PrimumInitium peut aussi activer le simple clic dans PCManFM, après confirmation. La création d'un affichage virtuel n'est pas automatisée : le bon réglage dépend de l'écran tactile, du pilote graphique et de la résolution utilisée.
 
 ## Installation détaillée (DietPi Bookworm)
 
@@ -332,20 +421,24 @@ chmod +x \
   scripts/lancer_nomade.sh \
   scripts/lancer_capteurs_mqtt.sh \
   scripts/primum_initium.sh \
+  scripts/emissio.py \
+  scripts/installer_watchdog_wifi.sh \
+  scripts/watchdog_wifi.sh \
   scripts/installer_scenes_obs.sh
 sudo ./scripts/install_nomade.sh
 ```
 
 Le script installe notamment :
 
-- Python et Tk ;
+- Python et Tk, ainsi que les outils Wi-Fi (`wpasupplicant`, `iw`, `rfkill`, `ifupdown`) ;
+- Onboard, requis pour le clavier virtuel tactile ;
 - `ffmpeg` et `avahi-daemon` ;
 - les dépendances Python du dépôt ;
 - `mosquitto` et `mosquitto-clients` pour un courtier MQTT local ;
 - OBS Studio avec Source Navigateur via le paquet communautaire Pi-Apps ;
 - les répertoires de données et journaux définis dans `config/nomade.toml`.
 
-Onboard reste facultatif : utilisez `sudo env NOMADE_INSTALL_ONBOARD=1 ./scripts/install_nomade.sh` pour le demander lors de l'installation.
+Onboard est installé par le script ; les ajustements PCManFM et les autres changements tactiles nécessitent une confirmation dans PrimumInitium.
 
 ## Installation d'OBS avec Source Navigateur
 

@@ -22,13 +22,16 @@ apt-get install -y \
   python3-venv \
   python3-pip \
   python3-tk \
+  wpasupplicant \
+  iw \
+  rfkill \
+  ifupdown \
+  iproute2 \
+  iputils-ping \
+  onboard \
   avahi-daemon \
   ffmpeg \
   wget
-
-if [[ "${NOMADE_INSTALL_ONBOARD:-0}" == "1" ]]; then
-  apt-get install -y onboard
-fi
 
 config_get() {
   python3 "$REPO_DIR/scripts/nomade_config.py" --repository "$REPO_DIR" --get "$1"

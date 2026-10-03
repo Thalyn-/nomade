@@ -1,3 +1,5 @@
 __pycache__/
 *.pyc
 config/nomade.local.toml
+config/nomade.secrets
+config/nomade.secrets.*.bak

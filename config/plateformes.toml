@@ -1,0 +1,50 @@
+# Les serveurs sont volontairement laissés vides : consultez la documentation
+# de la plateforme pour trouver le serveur adapté à votre compte et région.
+[[plateformes]]
+id = "twitch"
+libelle = "platform_twitch"
+protocole = "RTMP/RTMPS"
+aide = "platform_help_twitch"
+serveurs = []
+
+[[plateformes]]
+id = "kick"
+libelle = "platform_kick"
+protocole = "RTMP/RTMPS"
+aide = "platform_help_kick"
+serveurs = []
+
+[[plateformes]]
+id = "youtube"
+libelle = "platform_youtube"
+protocole = "RTMP/RTMPS"
+aide = "platform_help_youtube"
+serveurs = []
+
+[[plateformes]]
+id = "facebook"
+libelle = "platform_facebook"
+protocole = "RTMP/RTMPS"
+aide = "platform_help_facebook"
+serveurs = []
+
+[[plateformes]]
+id = "velora"
+libelle = "platform_velora"
+protocole = "RTMP/RTMPS"
+aide = "platform_help_velora"
+serveurs = []
+
+[[plateformes]]
+id = "restream"
+libelle = "platform_restream"
+protocole = "RTMP/RTMPS"
+aide = "platform_help_restream"
+serveurs = []
+
+[[plateformes]]
+id = "personnalise"
+libelle = "platform_custom"
+protocole = "RTMP/RTMPS ou SRT"
+aide = "platform_help_custom"
+serveurs = []
