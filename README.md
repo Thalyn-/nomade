@@ -2,6 +2,78 @@
 
 Solution locale de diffusion en direct pour Raspberry Pi 4B sous DietPi Bookworm, pensée pour un direct nomade avec OBS Studio, un téléphone Xiaomi 11T et une liaison capteurs la plus indépendante possible du réseau mobile utilisé pour la diffusion.
 
+## Avant de commencer : une connexion internet stable
+
+Internet est nécessaire pour télécharger DietPi, récupérer ce dépôt et installer les paquets. Une box reliée en Ethernet est la solution la plus simple. À défaut, un partage de connexion Wi-Fi de téléphone fonctionne, mais son adresse IP et sa passerelle peuvent changer : laissez le Raspberry en DHCP.
+
+### Se connecter au Wi-Fi
+
+1. Si DietPi est accessible, lancez `dietpi-config`, ouvrez le menu réseau, choisissez le Wi-Fi, sélectionnez votre réseau et saisissez sa clé. Redémarrez ou relancez l'interface si DietPi le demande.
+2. Sinon, ouvrez la configuration en administrateur. La commande `sudoedit` conserve le fichier existant et permet de le modifier sans le remplacer à l'aveugle :
+
+```bash
+sudo cp -a /etc/wpa_supplicant/wpa_supplicant.conf \
+  /etc/wpa_supplicant/wpa_supplicant.conf.bak
+sudoedit /etc/wpa_supplicant/wpa_supplicant.conf
+```
+
+Dans l'éditeur, utilisez ce modèle et remplacez les deux valeurs sur le Raspberry uniquement :
+
+```ini
+country=FR
+ctrl_interface=DIR=/run/wpa_supplicant GROUP=netdev
+update_config=1
+network={
+    ssid="NOM_DU_RESEAU"
+    psk="MOT_DE_PASSE"
+    key_mgmt=WPA-PSK
+}
+```
+
+Remplacez `FR` par le code pays de votre installation si vous êtes ailleurs. N'ajoutez pas `ieee80211d=1` dans la section globale. Gardez le mot de passe entre guillemets et aucun espace avant `psk=`. Les caractères accentués peuvent être mal interprétés par certains éditeurs ; préférez un nom de réseau et un mot de passe sans accents si vous pouvez les choisir. Ne collez jamais le vrai mot de passe dans le dépôt ou dans un journal.
+
+Avec le pilote Wi-Fi `brcmfmac`, évitez que deux gestionnaires pilotent la même interface. Si `ifupdown` utilise `wpa-conf` dans `/etc/network/interfaces.d/wlan0.conf`, laissez-le gérer le Wi-Fi et n'activez pas en parallèle un service `wpa_supplicant-wlan0.service` créé manuellement. Vérifiez d'abord son origine et sa configuration ; désactivez-le seulement s'il a été créé pour cette interface :
+
+```bash
+systemctl status wpa_supplicant-wlan0.service
+sudo systemctl disable --now wpa_supplicant-wlan0.service
+```
+
+Utilisez le DHCP, sans fixer l'adresse du Raspberry : c'est particulièrement important avec un partage 5G dont le réseau peut être en `10.x.x.x`. Si le téléphone le permet, réservez l'adresse du Raspberry dans les appareils connectés. Sur Xiaomi/HyperOS, cherchez **Paramètres > Point d'accès mobile > Appareils connectés** ; cette fonction n'est pas présente sur toutes les versions. Sinon, essayez `dietpi.local` grâce à Avahi, que l'installation Nomade ajoute. Certains téléphones ne résolvent pas les noms `.local` : utilisez alors l'adresse courante affichée par le diagnostic.
+
+### Déconnexions répétées : correctif conditionnel
+
+N'appliquez ceci que si vous constatez réellement une boucle « CONNECTED / DISCONNECTED ». Identifiez d'abord le service ou script Wi-Fi présent sur votre installation :
+
+```bash
+systemctl list-units --all | grep -i wifi
+```
+
+Si `dietpi-wifi-monitor.service` est bien actif et que vous suspectez ses alertes erronées, arrêtez-le après confirmation :
+
+```bash
+sudo systemctl disable --now dietpi-wifi-monitor.service
+```
+
+Si le nom affiché est différent, adaptez la commande au nom réellement trouvé ; ne désactivez pas un service réseau au hasard.
+
+### Kit de secours réseau
+
+Depuis un terminal local, ces commandes permettent de débloquer et relancer le Wi-Fi. Elles peuvent couper brièvement la connexion ; gardez un écran et un clavier à disposition :
+
+```bash
+sudo rfkill unblock wifi
+sudo wpa_cli -i wlan0 reconfigure
+sudo ifdown wlan0 && sudo ifup wlan0
+sudo systemctl restart networking
+ip a
+ping -c 3 deb.debian.org
+```
+
+La dernière commande de relance est un dernier recours, car elle peut interrompre les autres connexions réseau.
+
+Enfin, ne confondez pas les deux flux : SRT transporte la vidéo en **UDP**, sur le port `9001` par défaut ; le contrôle obs-websocket utilise **TCP**, sur `127.0.0.1:4455`. Ces ports et protocoles sont indépendants.
+
 ## Objectif
 
 Ce dépôt fournit une base **simple, locale, robuste et traduisible** pour :
@@ -98,7 +170,9 @@ Avant d'attendre un changement dans OBS, vérifiez chaque élément de cette lis
 - [ ] Si vous testez SRT, Larix est lancé en mode émetteur (caller) et la Source Média OBS en mode écoute (listener). Pour des capteurs, SensorCast et le courtier MQTT doivent également être lancés/configurés.
 - [ ] Le téléphone, la clé vidéo, le micro/casque et le réseau sont connectés si votre scène les utilise.
 
-L'assistant graphique et son mode terminal se lancent avec `./scripts/primum_initium.sh` et `./scripts/primum_initium.sh --diagnostic`. Une proposition d'ouverture automatique au démarrage de LXDE est facultative et peut être retirée depuis le même bouton.
+L'assistant graphique et son mode terminal se lancent avec `./scripts/primum_initium.sh` et `./scripts/primum_initium.sh --diagnostic`. Quand les prérequis essentiels sont validés, PrimumInitium ouvre Emissio pour choisir une plateforme et préparer le service OBS. Une proposition d'ouverture automatique au démarrage de LXDE est facultative et peut être retirée depuis le même bouton.
+
+Emissio est également lançable directement avec `./scripts/emissio.py`. Les serveurs de diffusion évoluent et varient selon les régions : consultez la documentation de la plateforme et saisissez l'adresse indiquée par celle-ci. La clé est écrite uniquement dans le profil OBS local, jamais dans la configuration suivie par Git. Le multistream complet reste hors périmètre ; Restream.io peut servir de destination intermédiaire.
 
 Les messages VAAPI « Failed to initialize display » ou « H264 encoding not supported » affichés dans la console d'OBS sont informatifs et normaux sur Raspberry Pi 4 : cette machine ne fournit pas VAAPI.
 
