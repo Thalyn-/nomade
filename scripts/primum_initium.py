@@ -59,6 +59,8 @@ def collecter_faits(repertoire: Path = REPO_DIR) -> dict[str, Any]:
     scenes: list[str] = []
     sources: list[str] = []
     navigateur = False
+    reception_srt: bool | None = None
+    avahi_actif = _commande("systemctl", "is-active", "avahi-daemon") == "active"
     if obs_actif:
         try:
             from obsws_python import ReqClient
@@ -66,16 +68,30 @@ def collecter_faits(repertoire: Path = REPO_DIR) -> dict[str, Any]:
             client = ReqClient(
                 "127.0.0.1",
                 4455,
-                os.environ.get("OBS" + "_MDP", ""),
+                os.environ.get("OBS_MDP", ""),
                 timeout=3,
             )
             websocket = "joignable"
             scenes = [scene["sceneName"] for scene in client.get_scene_list().scenes]
-            sources = [source["inputName"] for source in client.get_input_list().inputs]
-            navigateur = any(
-                "browser" in source.get("unversionedInputKind", "").lower()
-                for source in client.get_input_list().inputs
+            entrees = client.get_input_list().inputs
+            sources = [source["inputName"] for source in entrees]
+            types_disponibles = getattr(client.get_version(), "available_input_kinds", []) or []
+            navigateur = (
+                any("browser_source" in type_source for type_source in types_disponibles)
+                or Path("/usr/lib/obs-plugins/obs-browser.so").is_file()
+                or any(Path("/usr/lib").glob("*/obs-plugins/obs-browser.so"))
             )
+            etats_srt = []
+            for source in config["video_sources"]:
+                if source["type"] == "srt" and source["obs_source_name"] in sources:
+                    try:
+                        etat_media = client.get_media_input_status(
+                            input_name=source["obs_source_name"]
+                        ).media_state
+                        etats_srt.append(etat_media == "OBS_MEDIA_STATE_PLAYING")
+                    except Exception:
+                        pass
+            reception_srt = any(etats_srt) if etats_srt else None
         except Exception as exc:
             websocket = "mot_de_passe" if "auth" in str(exc).lower() else "indisponible"
 
@@ -87,7 +103,7 @@ def collecter_faits(repertoire: Path = REPO_DIR) -> dict[str, Any]:
         passerelle = ""
     voisins = _commande("ip", "neigh")
     video = sorted(str(path) for path in Path("/dev").glob("video*"))
-    ecoute_srt = "9001" in _commande("ss", "-lun")
+    ecoute_srt = bool(re.search(r"(?<!\d)9001(?!\d)", _commande("ss", "-lun")))
     audio = _commande("pactl", "list", "short", "sources")
     bluetooth = _commande("bluetoothctl", "show")
     return {
@@ -102,13 +118,15 @@ def collecter_faits(repertoire: Path = REPO_DIR) -> dict[str, Any]:
         "ip": ip[0] if ip else "",
         "passerelle": passerelle,
         "nom_local": f"{_commande('hostname') or 'dietpi'}.local",
+        "avahi_actif": avahi_actif,
         "voisins": voisins,
         "video": video,
         "ecoute_srt": ecoute_srt,
+        "reception_srt": reception_srt,
         "audio": audio,
         "bluetooth": bluetooth,
         "bnep": Path("/sys/class/net/bnep0").exists(),
-        "mqtt_actif": "active" in _commande("systemctl", "is-active", "mosquitto"),
+        "mqtt_actif": _commande("systemctl", "is-active", "mosquitto") == "active",
     }
 
 
@@ -132,7 +150,12 @@ def construire_rapport(faits: dict[str, Any], textes: dict[str, str]) -> Rapport
         ajouter("websocket", "erreur", cle)
 
     config_obs = faits["config"]["obs"]
-    attendues = [config_obs["scene"], *[config_obs[f"source_{cle}"] for cle in ("selfie", "carte", "vitesse", "pulsations", "meteo", "heure")]]
+    attendues = [
+        config_obs["scene"],
+        *[config_obs[f"source_{cle}"] for cle in ("selfie", "carte", "vitesse", "pulsations", "meteo", "heure")],
+        faits["config"]["chat"]["source_name"],
+        *[source["obs_source_name"] for source in faits["config"]["video_sources"]],
+    ]
     manquantes = [nom for nom in attendues if nom and nom not in faits["scenes"] and nom not in faits["sources"]]
     ajouter("scenes_sources", "ok" if not manquantes else "alerte", "check_scenes_ok" if not manquantes else "check_scenes_missing")
     ajouter("source_navigateur", "ok" if faits["navigateur"] else "alerte", "check_browser_ok" if faits["navigateur"] else "check_browser_missing")
@@ -144,7 +167,13 @@ def construire_rapport(faits: dict[str, Any], textes: dict[str, str]) -> Rapport
         devices=", ".join(faits["video"]),
     )
     ajouter("srt", "ok" if faits["ecoute_srt"] else "alerte", "check_srt_listening" if faits["ecoute_srt"] else "check_srt_missing")
-    ajouter("srt_reception", "alerte", "check_srt_caller")
+    reception = faits["reception_srt"]
+    if reception is True:
+        ajouter("srt_reception", "ok", "check_srt_received")
+    elif reception is False:
+        ajouter("srt_reception", "alerte", "check_srt_no_caller")
+    else:
+        ajouter("srt_reception", "alerte", "check_srt_caller")
     ajouter(
         "audio", "ok" if faits["audio"] else "alerte",
         "check_audio_ok" if faits["audio"] else "check_audio_missing",
@@ -153,9 +182,9 @@ def construire_rapport(faits: dict[str, Any], textes: dict[str, str]) -> Rapport
     reseau = {
         "ip": faits["ip"] or textes["unknown"],
         "passerelle": faits["passerelle"] or textes["unknown"],
-        "nom_local": faits["nom_local"],
+        "nom_local": faits["nom_local"] if faits["avahi_actif"] else textes["mdns_unavailable"].format(host=faits["nom_local"]),
         "telephone": _trouver_voisin(faits["voisins"], faits["passerelle"]) or textes["unknown"],
-        "srt": f"srt://{faits['nom_local'] if faits['ip'] else 'ADRESSE_DU_RASPBERRY'}:9001?mode=caller",
+        "srt": f"srt://{faits['nom_local'] if faits['avahi_actif'] else faits['ip'] or 'ADRESSE_DU_RASPBERRY'}:9001?mode=caller",
     }
     return Rapport(verifications, reseau)
 
@@ -200,6 +229,7 @@ def ecrire_configuration_locale(local_path: Path, changements: dict[str, str]) -
         horodatage = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
         sauvegarde = local_path.with_name(f"{local_path.name}.{horodatage}.bak")
         shutil.copy2(local_path, sauvegarde)
+        os.chmod(sauvegarde, 0o600)
     section = re.search(r"(?m)^\[network\][ \t]*(?:\r?\n|$)([\s\S]*?)(?=^\[|\Z)", contenu)
     lignes = [f'{cle} = {json.dumps(valeur, ensure_ascii=False)}' for cle, valeur in changements.items()]
     if section:
@@ -232,12 +262,29 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
 
     fenetre = tk.Tk()
     fenetre.title(textes["title"])
-    fenetre.geometry("900x700")
+    fenetre.geometry("900x650")
     cadre = ttk.Frame(fenetre, padding=12)
     cadre.pack(fill="both", expand=True)
+    ttk.Style(fenetre).configure("TButton", padding=(14, 10), font=("TkDefaultFont", 12))
     ttk.Label(cadre, text=textes["intro"], wraplength=850).pack(anchor="w", pady=6)
-    liste = ttk.Frame(cadre)
-    liste.pack(fill="both", expand=True)
+    zone = ttk.Frame(cadre)
+    zone.pack(fill="both", expand=True)
+    canevas = tk.Canvas(zone, highlightthickness=0)
+    barre = ttk.Scrollbar(zone, orient="vertical", command=canevas.yview)
+    canevas.configure(yscrollcommand=barre.set)
+    canevas.pack(side="left", fill="both", expand=True)
+    barre.pack(side="right", fill="y")
+    liste = ttk.Frame(canevas)
+    fenetre_liste = canevas.create_window((0, 0), window=liste, anchor="nw")
+
+    def ajuster_defilement(_: Any) -> None:
+        canevas.configure(scrollregion=canevas.bbox("all"))
+
+    def ajuster_largeur(_: Any) -> None:
+        canevas.itemconfigure(fenetre_liste, width=canevas.winfo_width())
+
+    liste.bind("<Configure>", ajuster_defilement)
+    canevas.bind("<Configure>", ajuster_largeur)
     for ligne in rapport.verifications:
         symbole = {"ok": "✔", "alerte": "⚠", "erreur": "✘"}[ligne.etat]
         ttk.Label(liste, text=f"{symbole}  {textes.get('label_' + ligne.cle, ligne.cle)} : {ligne.message}", wraplength=850).pack(anchor="w", pady=3)
@@ -246,9 +293,20 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
     def confirmer(message: str) -> bool:
         return messagebox.askyesno(textes["confirm_title"], message, parent=fenetre)
 
+    def lancer_administrateur(*commande: str) -> bool:
+        if not shutil.which("pkexec"):
+            messagebox.showerror(textes["title"], textes["admin_missing"], parent=fenetre)
+            return False
+        try:
+            subprocess.Popen(["pkexec", *commande])
+            return True
+        except OSError as exc:
+            messagebox.showerror(textes["title"], textes["action_error"].format(error=exc), parent=fenetre)
+            return False
+
     def installer() -> None:
         if confirmer(textes["confirm_install"]):
-            subprocess.Popen(["pkexec", str(repertoire / "scripts" / "install_nomade.sh")])
+            lancer_administrateur(str(repertoire / "scripts" / "install_nomade.sh"))
 
     def ecrire_local() -> None:
         chemin = repertoire / "config" / "nomade.local.toml"
@@ -258,24 +316,47 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
             return
         resume = "\n".join(f"{cle} : {valeur}" for cle, valeur in modifs.items())
         if confirmer(textes["confirm_config"].format(changes=resume)):
-            sauvegarde = ecrire_configuration_locale(chemin, modifs)
+            try:
+                sauvegarde = ecrire_configuration_locale(chemin, modifs)
+            except OSError as exc:
+                messagebox.showerror(textes["title"], textes["action_error"].format(error=exc), parent=fenetre)
+                return
             messagebox.showinfo(textes["title"], textes["config_saved"].format(backup=sauvegarde or textes["new_file"]), parent=fenetre)
 
     def corriger_wifi() -> None:
         if confirmer(textes["confirm_wifi"]):
-            subprocess.Popen(["pkexec", "systemctl", "disable", "--now", "dietpi-wifi-monitor.service"])
+            lancer_administrateur("systemctl", "disable", "--now", "dietpi-wifi-monitor.service")
 
     def confort_tablette() -> None:
         if not confirmer(textes["confirm_tablet"]):
             return
-        subprocess.run(["pkexec", "apt-get", "install", "-y", "onboard"], check=False)
+        try:
+            resultat = subprocess.run(["pkexec", "apt-get", "install", "-y", "onboard"], check=False)
+        except OSError as exc:
+            messagebox.showerror(textes["title"], textes["action_error"].format(error=exc), parent=fenetre)
+            return
+        if resultat.returncode != 0:
+            messagebox.showerror(textes["title"], textes["action_error"].format(error=resultat.returncode), parent=fenetre)
+            return
         conf = Path.home() / ".config" / "libfm" / "libfm.conf"
         conf.parent.mkdir(parents=True, exist_ok=True)
         avant = conf.read_text(encoding="utf-8") if conf.exists() else ""
         if conf.exists():
-            shutil.copy2(conf, conf.with_suffix(".conf.bak"))
-        if not re.search(r"(?m)^single_click\s*=", avant):
-            avant += "\n[config]\nsingle_click=1\n"
+            horodatage = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+            shutil.copy2(conf, conf.with_name(f"{conf.name}.{horodatage}.bak"))
+        section = re.search(r"(?m)^\[config\][ \t]*$", avant)
+        if section:
+            fin = re.search(r"(?m)^\[", avant[section.end():])
+            debut_corps = section.end()
+            fin_corps = debut_corps + fin.start() if fin else len(avant)
+            corps = avant[debut_corps:fin_corps]
+            if re.search(r"(?m)^single_click\s*=", corps):
+                corps = re.sub(r"(?m)^single_click\s*=.*$", "single_click=1", corps, count=1)
+            else:
+                corps = corps.rstrip() + "\nsingle_click=1\n"
+            avant = avant[:debut_corps] + corps + avant[fin_corps:]
+        else:
+            avant = avant.rstrip() + "\n\n[config]\nsingle_click=1\n"
         conf.write_text(avant, encoding="utf-8")
         messagebox.showinfo(textes["title"], textes["tablet_done"], parent=fenetre)
 
@@ -298,14 +379,17 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
 
     actions = ttk.Frame(cadre)
     actions.pack(fill="x", pady=8)
-    for cle, commande in (
+    for index, (cle, commande) in enumerate((
         ("button_install", installer),
         ("button_config", ecrire_local),
         ("button_wifi", corriger_wifi),
         ("button_tablet", confort_tablette),
         ("button_autostart", autostart),
-    ):
-        ttk.Button(actions, text=textes[cle], command=commande).pack(side="left", padx=4, pady=4)
+    )):
+        bouton = ttk.Button(actions, text=textes[cle], command=commande)
+        bouton.grid(row=index // 2, column=index % 2, sticky="ew", padx=4, pady=4)
+    actions.columnconfigure(0, weight=1)
+    actions.columnconfigure(1, weight=1)
     fenetre.mainloop()
 
 
