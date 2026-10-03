@@ -1,0 +1,16 @@
+{
+  "scenes": ["Scene principale"],
+  "sources": [
+    {"name": "G7 Principal", "kind": "v4l2_input", "settings": {"device": "/dev/video0"}, "enabled": true},
+    {"name": "G7 Secours", "kind": "v4l2_input", "settings": {"device": "/dev/video1"}, "enabled": false},
+    {"name": "Xiaomi Arriere", "kind": "ffmpeg_source", "settings": {"input": "srt://:9001?mode=listener", "is_local_file": false}, "enabled": false},
+    {"name": "Xiaomi Selfie", "kind": "ffmpeg_source", "settings": {"input": "srt://:9001?mode=listener", "is_local_file": false}, "enabled": false},
+    {"name": "Selfie", "kind": "color_source_v3", "settings": {"color": 4294967295, "width": 320, "height": 180}, "enabled": false},
+    {"name": "Carte", "kind": "color_source_v3", "settings": {"color": 4294967295, "width": 640, "height": 360}, "enabled": false},
+    {"name": "Vitesse", "kind": "color_source_v3", "settings": {"color": 4294967295, "width": 320, "height": 120}, "enabled": false},
+    {"name": "Pulsations", "kind": "color_source_v3", "settings": {"color": 4294967295, "width": 320, "height": 120}, "enabled": false},
+    {"name": "Meteo", "kind": "color_source_v3", "settings": {"color": 4294967295, "width": 320, "height": 120}, "enabled": false},
+    {"name": "Heure", "kind": "color_source_v3", "settings": {"color": 4294967295, "width": 240, "height": 80}, "enabled": false},
+    {"name": "Chat multicanal", "kind": "browser_source", "settings": {"url": "about:blank", "width": 640, "height": 720}, "enabled": false}
+  ]
+}

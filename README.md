@@ -12,7 +12,29 @@ Ce dépôt fournit une base **simple, locale, robuste et traduisible** pour :
 - recevoir des capteurs via MQTT sur une liaison Bluetooth distincte du tethering 5G, puis les écrire dans un fichier JSON local ;
 - garder `obs-websocket` en boucle locale (`127.0.0.1`) pour ne pas exposer le contrôle OBS sur le réseau mobile.
 
-## Installation fraîche de DietPi (avant d'installer nomade)
+## 1. Démarrage rapide (environ 10 minutes)
+
+Cette durée suppose que DietPi, le bureau LXDE et le dépôt sont déjà installés. Une première installation de DietPi prend davantage de temps.
+
+1. Branchez le Raspberry Pi, son écran et son alimentation ; connectez la clé d'acquisition et le téléphone si vous les utilisez.
+2. Depuis le dépôt, lancez `sudo ./scripts/install_nomade.sh`. Le script installe les dépendances, OBS avec sa Source Navigateur, puis ouvre l'assistant de premier démarrage (ou affiche son diagnostic dans le terminal).
+3. Dans OBS, activez obs-websocket sur `127.0.0.1:4455`, choisissez un mot de passe, puis préparez les scènes et sources. Le modèle est importable avec `./scripts/installer_scenes_obs.sh` ; il faut encore l'adapter au matériel.
+4. Pour un téléphone en SRT, créez dans OBS une Source Média en écoute sur le port UDP `9001`, puis saisissez l'adresse affichée par l'assistant dans Larix Broadcaster.
+5. Lancez `export OBS_MDP='votre_mot_de_passe'` puis `./scripts/lancer_nomade.sh`.
+
+Les préréglages Nomade ne font qu'activer ou désactiver des **sources et scènes déjà créées** : ils n'en créent aucune. La préparation ou l'import du modèle OBS est donc indispensable.
+
+## 2. Matériel nécessaire
+
+- **Raspberry Pi 4B**, avec une alimentation fiable adaptée (5 V / 3 A recommandés).
+- Carte microSD de bonne qualité, écran et clavier pour l'installation initiale ; un écran tactile est facultatif mais pratique en direct.
+- Connexion réseau pour installer les paquets, puis Wi-Fi ou partage de connexion du téléphone. Une IP fixe sur le Raspberry n'est pas requise.
+- Téléphone Android compatible avec Larix Broadcaster pour l'envoi SRT. IP Webcam peut convenir à un usage plus simple et moins exigeant en énergie ; NDI HX Camera est une alternative propriétaire, non recommandée par défaut.
+- Facultatif : caméra HDMI et clé d'acquisition USB reconnue comme périphérique vidéo Linux (`/dev/video*`), microphone ou casque Bluetooth, ainsi qu'un système de refroidissement adapté aux longs directs.
+
+L'encodage matériel du téléphone et l'arrêt de l'aperçu écran réduisent sa chauffe. Larix est généralement plus robuste sur un réseau instable, mais plus gourmand ; vérifiez la température lors des essais.
+
+## 3. Installation fraîche de DietPi
 
 Cette section s'adresse à une personne qui repart d'une carte mémoire vierge, sans DietPi déjà installé. Elle décrit uniquement les étapes nécessaires pour obtenir un Raspberry Pi 4B prêt à recevoir nomade. Pour les cas non couverts ici, reportez-vous au site officiel de DietPi.
 
@@ -24,13 +46,13 @@ Cette section s'adresse à une personne qui repart d'une carte mémoire vierge, 
 3. **Premier démarrage du Raspberry Pi**
    - Insérez la carte mémoire dans le Raspberry Pi, branchez un écran et un clavier (ou préparez un accès par le réseau si vous maîtrisez déjà cette méthode), puis mettez sous tension.
 4. **Première connexion**
-   - Identifiez-vous avec les comptes par défaut de DietPi : nom d'utilisateur `root` (ou `dietpi`), mot de passe `dietpi`.
+   - Valeurs testées sur l'installation fraîche : nom d'utilisateur `root` (ou `dietpi`), mot de passe initial `dietpi`. Ces valeurs peuvent varier selon la version de DietPi téléchargée.
    - DietPi vous demandera normalement de changer ce mot de passe par défaut dès la première connexion : faites-le, pour votre sécurité.
 5. **Paramétrage initial (`dietpi-config`)**
    - Réglez au minimum la langue du clavier, le fuseau horaire, ainsi que la connexion réseau (Wi-Fi ou câble Ethernet) si ce n'est pas déjà fait automatiquement.
 6. **Installation des logiciels de base (`dietpi-software`)**
    - Cet outil se lance normalement tout seul après le premier paramétrage. S'il ne se lance pas automatiquement, tapez la commande `dietpi-software`.
-   - Dans la liste des logiciels proposés, section Affichage (« Display »), choisissez **LXDE** : il s'agit d'un environnement de bureau graphique léger, adapté au Raspberry Pi. C'est ce bureau qui permettra ensuite d'afficher OBS et l'interface tactile de nomade.
+   - Dans la liste des logiciels proposés, section « Desktop », choisissez **LXDE**. Valeur testée : LXDE est l'entrée n° 23, premier élément sélectionnable sous « Desktop » ; le numéro peut varier selon la version de DietPi. C'est ce bureau qui permettra ensuite d'afficher OBS et l'interface tactile de nomade.
    - Vous pouvez également installer ici des outils utiles comme `git`, si la liste vous le propose.
 7. **Mise à jour du système**
    - Une fois le bureau installé, mettez le système à jour avant d'aller plus loin :
@@ -48,9 +70,72 @@ cd nomade
 ```
 
 9. **Installation d'OBS et des dépendances de nomade**
-   - Le paquet OBS fourni par défaut sur cette architecture ne contient pas la Source Navigateur : le dépôt installe donc un paquet communautaire (Pi-Apps) qui l'inclut. Cette étape, ainsi que l'installation de Python et des autres dépendances, est prise en charge par le script d'installation décrit dans la section [Installation (DietPi Bookworm)](#installation-dietpi-bookworm) ci-dessous.
+   - Le paquet OBS fourni par défaut sur cette architecture ne contient pas la Source Navigateur : le dépôt installe donc le paquet communautaire Pi-Apps qui l'inclut. Cette étape, ainsi que Python et les autres dépendances, est prise en charge par l'installation en une commande, ci-dessous.
 
-Une fois ces neuf étapes réalisées, votre Raspberry Pi dispose d'un environnement graphique fonctionnel et du dépôt nomade en place : vous pouvez enchaîner directement avec la procédure d'installation détaillée plus bas dans ce document.
+Une fois ces neuf étapes réalisées, votre Raspberry Pi dispose d'un environnement graphique fonctionnel et du dépôt nomade en place.
+
+## 4. Installer Nomade en une commande
+
+Dans un terminal ouvert dans le dépôt :
+
+```bash
+sudo ./scripts/install_nomade.sh
+```
+
+Le script installe les outils système, Python/Tk, `ffmpeg`, `avahi-daemon`, Mosquitto et OBS avec la Source Navigateur, puis crée l'environnement Python Nomade. Il lance ensuite PrimumInitium : fenêtre graphique si l'installation est lancée depuis LXDE, rapport de diagnostic dans le terminal sinon. Il ne désactive aucun service système.
+
+Le clavier virtuel libre Onboard est facultatif : utilisez `sudo env NOMADE_INSTALL_ONBOARD=1 ./scripts/install_nomade.sh` pour l'installer. La correction du Wi-Fi et les autres changements système restent des actions explicites de l'assistant.
+
+## 5. Premier lancement validé
+
+Les essais rapportés sur une installation fraîche de DietPi ont validé `scripts/install_nomade.sh`, OBS installé par Pi-Apps avec la Source Navigateur et Larix en SRT sur un partage 5G à IP dynamique de type `10.x.x.x`. Le résultat peut varier selon les versions de DietPi, OBS et les téléphones.
+
+Avant d'attendre un changement dans OBS, vérifiez chaque élément de cette liste :
+
+- [ ] OBS est ouvert et utilise la collection contenant la scène **Scene principale**.
+- [ ] Les sources attendues (caméra USB, sources SRT et éléments visuels) ont été créées et ajoutées à la bonne scène. Importez le modèle avec `./scripts/installer_scenes_obs.sh` si besoin ; ce sont des modèles à adapter à la clé d'acquisition et au téléphone réellement utilisés.
+- [ ] Dans OBS > Outils > Paramètres du serveur WebSocket, le serveur est activé, lié à `127.0.0.1`, sur le port `4455` ; le mot de passe correspond à `OBS_MDP`.
+- [ ] Si vous testez SRT, Larix est lancé en mode émetteur (caller) et la Source Média OBS en mode écoute (listener). Pour des capteurs, SensorCast et le courtier MQTT doivent également être lancés/configurés.
+- [ ] Le téléphone, la clé vidéo, le micro/casque et le réseau sont connectés si votre scène les utilise.
+
+L'assistant graphique et son mode terminal se lancent avec `./scripts/primum_initium.sh` et `./scripts/primum_initium.sh --diagnostic`. Une proposition d'ouverture automatique au démarrage de LXDE est facultative et peut être retirée depuis le même bouton.
+
+Les messages VAAPI « Failed to initialize display » ou « H264 encoding not supported » affichés dans la console d'OBS sont informatifs et normaux sur Raspberry Pi 4 : cette machine ne fournit pas VAAPI.
+
+## 6. Dépannage express
+
+### Connexion obs-websocket refusée
+
+Vérifiez qu'OBS est ouvert, que son serveur WebSocket est activé, qu'il écoute sur **`127.0.0.1`**, au port **`4455`**, et que le mot de passe est exactement celui de `OBS_MDP`. Relancez ensuite `./scripts/primum_initium.sh --diagnostic`. N'exposez jamais ce serveur sur `0.0.0.0` ou le réseau du téléphone.
+
+### Wi-Fi instable
+
+Ce correctif est **conditionnel** : ne désactivez `dietpi-wifi-monitor` que si vous constatez réellement une boucle de déconnexions. Confirmez l'action dans PrimumInitium ou exécutez explicitement `sudo systemctl disable --now dietpi-wifi-monitor.service`.
+
+Si le Wi-Fi ne démarre toujours pas, vérifiez que `/etc/wpa_supplicant/wpa_supplicant.conf` suit cette structure (remplacez les deux valeurs d'exemple sur le Raspberry, jamais dans ce dépôt) :
+
+```ini
+country=FR
+ctrl_interface=DIR=/run/wpa_supplicant GROUP=netdev
+update_config=1
+network={
+    ssid="NOM_DU_RESEAU"
+    psk="MOT_DE_PASSE"
+    key_mgmt=WPA-PSK
+}
+```
+
+Ne placez pas `ieee80211d=1` dans la section globale ; gardez les guillemets autour de `psk`, sans espace avant `psk=`. Si `ifupdown` gère déjà le pilote `brcmfmac` avec `wpa-conf` dans `/etc/network/interfaces.d/wlan0.conf`, ne lancez pas en parallèle un service `wpa_supplicant-wlan0.service` créé manuellement.
+
+Avant de modifier cette configuration système, faites une copie de sauvegarde, puis utilisez `sudoedit` plutôt que de remplacer le fichier à l'aveugle. Dans les essais rapportés, des espaces mal placés, une clé sans guillemets ou certains caractères accentués mal enregistrés empêchaient la connexion : vérifiez le format et l'encodage si le Wi-Fi ne démarre pas. Ne copiez jamais votre vraie clé dans le dépôt.
+
+### SRT ne reçoit rien
+
+SRT transporte la vidéo en **UDP** ; obs-websocket contrôle OBS en **TCP** sur `127.0.0.1:4455`. Dans OBS, utilisez `srt://:9001?mode=listener` (sans IP avant les deux-points) ; dans Larix, utilisez `srt://<ADRESSE_DU_RASPBERRY>:9001?mode=caller`. Ne réutilisez jamais un port déjà occupé. Vérifiez l'aperçu de la source OBS et désactivez l'aperçu du téléphone si celui-ci chauffe.
+
+Une adresse 5G dynamique n'empêche pas SRT de fonctionner. Préférez `dietpi.local` si le téléphone résout les noms mDNS ; sinon, utilisez l'IP courante indiquée par l'assistant.
+
+## 7. Annexes avancées
 
 ## Architecture retenue
 
@@ -119,6 +204,20 @@ Cette version ne prétend pas fournir un « OBS headless » complet, car OBS Stu
 - Il ne faut **pas** exposer `obs-websocket` sur `0.0.0.0`, sur l'interface 5G, ni sur une interface de tethering.
 - Le transport des capteurs du téléphone ne doit pas être confondu avec le contrôle OBS : ce sont deux chemins distincts.
 
+### Réseau mobile, DHCP et mDNS
+
+Le partage de connexion 5G peut fournir une passerelle et une adresse qui changent (par exemple une adresse en `10.x.x.x`). Laissez le Raspberry en **DHCP pur** ; ne configurez pas d'adresse IP statique dessus. Si le téléphone le permet, réservez l'adresse du Raspberry dans « Appareils connectés ». Sur un Xiaomi 11T sous HyperOS cette option peut manquer ; après redémarrage, le même appareil conserve souvent son adresse grâce à son adresse MAC.
+
+Pour éviter de saisir une adresse changeante, installez/activez `avahi-daemon` (installé par Nomade) et essayez `dietpi.local`, par exemple `srt://dietpi.local:9001?mode=caller`. C'est mDNS via Avahi, sans Bonjour. Certaines applications mobiles ne savent pas résoudre les noms locaux : dans ce cas, utilisez l'IP affichée par l'assistant de diagnostic.
+
+Sur Xiaomi 11T/HyperOS, l'option de réservation se trouve, lorsqu'elle existe, dans **Paramètres > Point d'accès mobile > Appareils connectés > Raspberry Pi > IP fixe/réservée**.
+
+### Wi-Fi instable (correctif conditionnel)
+
+Une boucle CONNECTED/DISCONNECTED peut venir de `dietpi-wifi-monitor` et de faux positifs de latence. Désactivez ce service seulement si vous observez cette instabilité, avec l'accord explicite demandé par PrimumInitium. Le modèle de `wpa_supplicant.conf` et les précautions `brcmfmac` sont décrits dans le dépannage express.
+
+Le pilote `brcmfmac` peut aussi entrer en conflit si `ifupdown` et systemd gèrent la même interface. Si `ifupdown` utilise `wpa-conf` dans `/etc/network/interfaces.d/wlan0.conf`, désactivez seulement le service `wpa_supplicant-wlan0.service` créé manuellement et après vérification de la configuration.
+
 ## Configuration centralisée
 
 Nomade privilégie maintenant **un fichier de configuration TOML unique** plutôt que des modifications réparties dans plusieurs scripts.
@@ -169,9 +268,13 @@ Nomade ne décode pas lui-même les flux SRT : OBS reste le moteur vidéo unique
 
 Pour une source SRT (ex. Larix Broadcaster sur Xiaomi), configurez côté OBS une **Source Média** en écoute :
 
-`srt://0.0.0.0:9000?mode=listener`
+`srt://:9001?mode=listener`
 
-Le flux est reçu nativement par OBS, puis Nomade ne fait qu'activer/désactiver la source via websocket.
+Le flux arrive en **UDP**. Côté téléphone, Larix Broadcaster émet en mode caller vers `srt://<ADRESSE_DU_RASPBERRY>:9001?mode=caller`. Ne codez pas en dur une IP dynamique dans le téléphone : utilisez `dietpi.local` si l'application sait le résoudre, sinon l'IP courante indiquée par PrimumInitium. N'utilisez pas ce port s'il est déjà pris.
+
+Le contrôle `obs-websocket` est différent : il reste en **TCP**, sur `127.0.0.1:4455`, et ne doit jamais être exposé sur le réseau.
+
+Larix est plus tolérant aux réseaux instables mais peut chauffer davantage le téléphone. Privilégiez l'encodage matériel et coupez l'aperçu de l'écran. IP Webcam est une option plus simple et généralement moins exigeante ; NDI HX Camera reste une option non recommandée par défaut en raison de son SDK propriétaire.
 
 ### Presets (préréglages)
 
@@ -187,6 +290,8 @@ Exemples inclus :
 
 - `sans_reperes` : masque `carte` et `vitesse`
 - `trajet` : affiche `carte` et `vitesse`
+
+Les préréglages pilotent uniquement des scènes et sources **existantes** : ils ne créent pas de scène ni de source OBS. Les noms de scènes et de sources sont configurables dans `config/nomade.toml` puis, pour les adaptations locales, dans `config/nomade.local.toml`.
 
 ### À propos de `/opt/nomade-venv`
 
@@ -211,7 +316,9 @@ L'interface principale reste **Python/Tkinter**. Ce choix est volontaire pour un
 
 Une interface web locale pourrait être étudiée plus tard comme extension facultative, mais elle n'est **pas** implémentée dans cette évolution.
 
-## Installation (DietPi Bookworm)
+PrimumInitium peut aussi activer le simple clic dans PCManFM et installer le clavier virtuel libre Onboard, après confirmation. La création d'un affichage virtuel n'est pas automatisée : le bon réglage dépend de l'écran tactile, du pilote graphique et de la résolution utilisée.
+
+## Installation détaillée (DietPi Bookworm)
 
 ```bash
 cd /chemin/vers/le/depot/nomade
@@ -223,17 +330,22 @@ chmod +x \
   scripts/lancer_obs_preparation.sh \
   scripts/lancer_obs_direct.sh \
   scripts/lancer_nomade.sh \
-  scripts/lancer_capteurs_mqtt.sh
+  scripts/lancer_capteurs_mqtt.sh \
+  scripts/primum_initium.sh \
+  scripts/installer_scenes_obs.sh
 sudo ./scripts/install_nomade.sh
 ```
 
 Le script installe notamment :
 
 - Python et Tk ;
+- `ffmpeg` et `avahi-daemon` ;
 - les dépendances Python du dépôt ;
 - `mosquitto` et `mosquitto-clients` pour un courtier MQTT local ;
 - OBS Studio avec Source Navigateur via le paquet communautaire Pi-Apps ;
 - les répertoires de données et journaux définis dans `config/nomade.toml`.
+
+Onboard reste facultatif : utilisez `sudo env NOMADE_INSTALL_ONBOARD=1 ./scripts/install_nomade.sh` pour le demander lors de l'installation.
 
 ## Installation d'OBS avec Source Navigateur
 
@@ -306,6 +418,8 @@ Les noms restent modifiables par arguments si besoin :
 - pulsations : `Pulsations`
 - météo : `Meteo`
 - heure : `Heure`
+
+Le fichier `examples/nomade-scenes.json` décrit le modèle utilisé par `./scripts/installer_scenes_obs.sh`. OBS doit être ouvert avec son WebSocket actif sur la boucle locale ; exportez `OBS_MDP` avant l'import. Le script sauvegarde les collections OBS présentes, demande confirmation, crée les scènes/sources absentes et ne remplace aucun nom existant. Les entrées caméra, overlays et téléphone sont des modèles à adapter à votre matériel ; pour plusieurs réceptions SRT simultanées, attribuez un port distinct à chaque source et mettez à jour `srt_port`.
 
 ## Capteurs via MQTT sur liaison Bluetooth
 
@@ -460,3 +574,9 @@ Vérifications prévues avant demande de fusion :
 - la récupération directe des pulsations de certains objets connectés peut rester limitée selon leurs protocoles ;
 - l'installation OBS repose toujours sur un paquet communautaire Pi-Apps pour conserver la Source Navigateur ;
 - le multistream complet reste volontairement reporté à une évolution séparée.
+
+## Feuille de route
+
+- étudier une image DietPi `.img` prête à graver, seulement après stabilisation et validation matérielle ;
+- enrichir les scènes OBS par défaut sans écraser les collections personnelles ;
+- étudier un assistant graphique plus complet et des réglages pour limiter la chauffe et préserver la batterie du téléphone.

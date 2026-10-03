@@ -22,7 +22,13 @@ apt-get install -y \
   python3-venv \
   python3-pip \
   python3-tk \
+  avahi-daemon \
+  ffmpeg \
   wget
+
+if [[ "${NOMADE_INSTALL_ONBOARD:-0}" == "1" ]]; then
+  apt-get install -y onboard
+fi
 
 config_get() {
   python3 "$REPO_DIR/scripts/nomade_config.py" --repository "$REPO_DIR" --get "$1"
@@ -56,3 +62,13 @@ echo "Préparation OBS complète : ./scripts/lancer_obs_preparation.sh"
 echo "Direct OBS allégé : ./scripts/lancer_obs_direct.sh"
 echo "Interface locale : définissez OBS_MDP puis lancez ./scripts/lancer_nomade.sh"
 echo "Ingestion capteurs MQTT : ./scripts/lancer_capteurs_mqtt.sh"
+echo "Assistant de premier démarrage : ./scripts/primum_initium.sh"
+if [[ -n "${DISPLAY:-}" && -n "${SUDO_USER:-}" ]]; then
+  runuser -u "$SUDO_USER" -- env \
+    DISPLAY="$DISPLAY" \
+    XAUTHORITY="${XAUTHORITY:-/home/$SUDO_USER/.Xauthority}" \
+    HOME="/home/$SUDO_USER" \
+    "$VENV_DIR/bin/python" "$SCRIPT_DIR/primum_initium.py"
+else
+  "$VENV_DIR/bin/python" "$SCRIPT_DIR/primum_initium.py" --diagnostic
+fi
