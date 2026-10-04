@@ -27,7 +27,7 @@ from nomade_utils import charger_traductions
 def charger_plateformes(chemin: Path) -> list[dict[str, Any]]:
     with Path(chemin).open("rb") as fichier:
         plateformes = tomllib.load(fichier).get("plateformes", [])
-    if not plateformes or any(not {"id", "libelle", "protocole", "aide"} <= p.keys() for p in plateformes):
+    if not plateformes or any(not {"id", "profil", "libelle", "protocole", "aide"} <= p.keys() for p in plateformes):
         raise ValueError("invalid_platform_definitions")
     return plateformes
 
@@ -35,11 +35,43 @@ def charger_plateformes(chemin: Path) -> list[dict[str, Any]]:
 def chemin_service_obs(repertoire: Path, profil: str) -> Path:
     if not profil or Path(profil).name != profil or profil in {".", ".."}:
         raise ValueError("invalid_obs_profile")
-    racine = Path(repertoire).resolve() / ".config" / "obs-studio" / "basic" / "profiles"
+    home = Path(repertoire).expanduser().resolve()
+    xdg = os.environ.get("XDG_CONFIG_HOME") if home == Path.home().resolve() else None
+    configuration = Path(xdg or home / ".config").expanduser()
+    racine = configuration.resolve() / "obs-studio" / "basic" / "profiles"
     chemin = (racine / profil / "service.json").resolve()
     if not chemin.is_relative_to(racine.resolve()):
         raise ValueError("invalid_obs_profile")
     return chemin
+
+
+def ecrire_service_plateforme(
+    repertoire: Path,
+    profil_base: str,
+    profil_plateforme: str,
+    serveur: str,
+    cle: str,
+    protocole: str = "RTMP",
+) -> Path | None:
+    """Crée un profil dédié depuis le profil direct et y enregistre son service."""
+    base = chemin_service_obs(repertoire, profil_base).parent
+    destination = chemin_service_obs(repertoire, profil_plateforme).parent
+    destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if not destination.exists():
+        if base.is_dir():
+            shutil.copytree(
+                base,
+                destination,
+                ignore=shutil.ignore_patterns("service.json"),
+            )
+        else:
+            destination.mkdir(parents=True, mode=0o700)
+    os.chmod(destination, 0o700)
+    return ecrire_service_obs(destination / "service.json", serveur, cle, protocole)
+
+
+def profil_plateforme_existe(repertoire: Path, profil: str) -> bool:
+    return chemin_service_obs(repertoire, profil).is_file()
 
 
 def valider_destination(serveur: str, protocole: str) -> tuple[str, int] | None:
@@ -163,12 +195,35 @@ def _interface(textes: dict[str, str], plateformes: list[dict[str, Any]], profil
     ttk.Label(cadre, text=textes["emissio_key"]).pack(anchor="w", pady=(8, 2))
     entree_cle = ttk.Entry(cadre, textvariable=cle, show="•", font=("TkDefaultFont", 14))
     entree_cle.pack(fill="x")
+    ttk.Label(
+        cadre, text=textes["emissio_key_storage_warning"], wraplength=740
+    ).pack(anchor="w", pady=3)
     statut = tk.StringVar()
     ttk.Label(cadre, textvariable=statut, wraplength=740).pack(anchor="w", pady=8)
 
     def plateforme_selectionnee() -> dict[str, Any]:
         valeur = plateforme.get()
         return next(p for p in plateformes if textes[p["libelle"]] == valeur)
+
+    def charger_service_selectionne() -> None:
+        nonlocal enregistrement_effectue
+        definition = plateforme_selectionnee()
+        chemin = chemin_service_obs(Path.home(), definition["profil"])
+        if chemin.is_file():
+            try:
+                donnees = json.loads(chemin.read_text(encoding="utf-8"))
+                parametres = donnees.get("settings", {})
+                serveur.set(str(parametres.get("server", "")))
+                cle.set(str(parametres.get("key", "")))
+                enregistrement_effectue = bool(serveur.get() and cle.get())
+            except (OSError, ValueError, TypeError):
+                serveur.set("")
+                cle.set("")
+                enregistrement_effectue = False
+        else:
+            serveur.set("")
+            cle.set("")
+            enregistrement_effectue = False
 
     def mettre_a_jour_aide(_: Any = None) -> None:
         definition = plateforme_selectionnee()
@@ -178,6 +233,7 @@ def _interface(textes: dict[str, str], plateformes: list[dict[str, Any]], profil
         choix_protocole.configure(values=protocoles)
         if protocole.get() not in protocoles:
             protocole.set("RTMP")
+        charger_service_selectionne()
         statut.set("")
 
     choix.bind("<<ComboboxSelected>>", mettre_a_jour_aide)
@@ -228,7 +284,21 @@ def _interface(textes: dict[str, str], plateformes: list[dict[str, Any]], profil
                 )
                 enregistrement_effectue = True
                 return
-            sauvegarde = ecrire_service_obs(profil, serveur.get(), cle.get(), protocole.get())
+            definition = plateforme_selectionnee()
+            chemin = chemin_service_obs(Path.home(), definition["profil"])
+            if chemin.exists() and not messagebox.askyesno(
+                textes["emissio_title"], textes["emissio_replace_profile"], parent=fenetre
+            ):
+                return
+            profil_direct = profil.parent.name
+            sauvegarde = ecrire_service_plateforme(
+                Path.home(),
+                profil_direct,
+                definition["profil"],
+                serveur.get(),
+                cle.get(),
+                protocole.get(),
+            )
         except ValueError as erreur:
             cle_message = (
                 "emissio_credentials_required" if str(erreur) == "missing_stream_credentials"
@@ -274,6 +344,7 @@ def _interface(textes: dict[str, str], plateformes: list[dict[str, Any]], profil
             if mode_direct:
                 environnement = dict(os.environ)
                 environnement["NOMADE_OBS_AUTOSTART_DIFFUSION"] = "1"
+                environnement["NOMADE_OBS_PROFIL_DIRECT"] = plateforme_selectionnee()["profil"]
                 subprocess.Popen(
                     [str(SCRIPT_DIR / "lancer_nomade.sh")],
                     cwd=REPO_DIR,

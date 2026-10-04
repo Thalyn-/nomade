@@ -16,6 +16,7 @@ from emissio import (
     chemin_service_obs,
     ecrire_destination_srt,
     ecrire_service_obs,
+    ecrire_service_plateforme,
     tester_serveur,
     valider_destination,
 )
@@ -31,6 +32,7 @@ class EmissioTests(unittest.TestCase):
         )
         self.assertTrue(all(plateforme["libelle"].startswith("platform_") for plateforme in plateformes))
         self.assertTrue(all(not plateforme["serveurs"] for plateforme in plateformes))
+        self.assertTrue(all(plateforme["profil"].startswith("Nomade - ") for plateforme in plateformes))
 
     def test_validation_du_serveur_rtmp_et_srt(self) -> None:
         self.assertEqual(valider_destination("rtmps://stream.example/live", "RTMP"), ("stream.example", 443))
@@ -58,6 +60,29 @@ class EmissioTests(unittest.TestCase):
             resultat = json.loads(chemin.read_text(encoding="utf-8"))
             self.assertEqual(resultat["settings"]["server"], "rtmps://serveur.example/live")
             self.assertEqual(resultat["settings"]["key"], "cle-factice")
+
+    def test_profil_plateforme_copie_les_reglages_video_et_protege_la_cle(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            home = Path(dossier)
+            base = chemin_service_obs(home, "Nomade direct fixe")
+            base.parent.mkdir(parents=True)
+            (base.parent / "basic.ini").write_text("[Output]\nMode=Advanced\n", encoding="utf-8")
+            base.write_text('{"settings":{"key":"ancienne-cle"}}\n', encoding="utf-8")
+
+            destination = ecrire_service_plateforme(
+                home, "Nomade direct fixe", "Nomade - Twitch",
+                "rtmps://serveur.example/live", "cle-factice",
+            )
+
+            profil = chemin_service_obs(home, "Nomade - Twitch")
+            donnees = json.loads(profil.read_text(encoding="utf-8"))
+            self.assertEqual(donnees["settings"]["key"], "cle-factice")
+            self.assertEqual((profil.parent / "basic.ini").read_text(encoding="utf-8"), "[Output]\nMode=Advanced\n")
+            self.assertFalse((profil.parent / "service.json.bak").exists())
+            self.assertEqual(os.stat(profil).st_mode & 0o777, 0o600)
+            self.assertEqual(os.stat(profil.parent).st_mode & 0o777, 0o700)
+            self.assertIsNone(destination)
+            self.assertEqual(json.loads(base.read_text(encoding="utf-8"))["settings"]["key"], "ancienne-cle")
 
     def test_destination_srt_est_stockee_dans_le_fichier_secret_local(self) -> None:
         with tempfile.TemporaryDirectory() as dossier:

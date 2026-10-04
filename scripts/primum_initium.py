@@ -27,6 +27,12 @@ from nomade_secrets import enregistrer_secret_obs, charger_secret_obs
 from nomade_utils import charger_traductions
 
 
+def repertoire_config_utilisateur() -> Path:
+    return Path(
+        os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
+    ).expanduser()
+
+
 @dataclass(frozen=True)
 class Verification:
     cle: str
@@ -52,6 +58,7 @@ def _commande(*arguments: str) -> str:
 def reconnecter_wifi(executer: Any = subprocess.run) -> list[tuple[str, int, str]]:
     """Exécute une séquence de reconnexion, injectable pour les tests."""
     etapes = [
+        ("systemctl", "restart", "networking"),
         ("rfkill", "unblock", "wifi"),
         ("iw", "dev", "wlan0", "scan"),
         ("wpa_cli", "-i", "wlan0", "reconfigure"),
@@ -64,18 +71,107 @@ def reconnecter_wifi(executer: Any = subprocess.run) -> list[tuple[str, int, str
             resultat = executer(commande, check=False, capture_output=True, text=True, timeout=20)
             sortie = (getattr(resultat, "stdout", "") or getattr(resultat, "stderr", "") or "").strip()
             code = resultat.returncode
+        except FileNotFoundError:
+            code, sortie = 2, "outil_absent"
         except (OSError, subprocess.TimeoutExpired) as erreur:
             code, sortie = 1, str(erreur)
         resultats.append((commande[0], code, sortie))
-    if resultats[-1][1] != 0:
-        commande = ("systemctl", "restart", "networking")
-        try:
-            resultat = executer(commande, check=False, capture_output=True, text=True, timeout=30)
-            sortie = (getattr(resultat, "stdout", "") or getattr(resultat, "stderr", "") or "").strip()
-            resultats.append((commande[0], resultat.returncode, sortie))
-        except (OSError, subprocess.TimeoutExpired) as erreur:
-            resultats.append((commande[0], 1, str(erreur)))
     return resultats
+
+
+def construire_adresses_srt(nom_local: str, adresse_ip: str, port: int = 9001) -> tuple[str, str]:
+    """Construit les deux adresses Larix sans dépendre de la résolution mDNS du téléphone."""
+    hote = nom_local.strip().removesuffix(".local")
+    adresse = f"srt://{hote}.local:{port}?mode=caller" if hote else ""
+    ip = adresse_ip.strip()
+    if ":" in ip and not (ip.startswith("[") and ip.endswith("]")):
+        ip = f"[{ip}]"
+    adresse_ip_srt = f"srt://{ip}:{port}?mode=caller" if ip else ""
+    return adresse, adresse_ip_srt
+
+
+def etape_suivante(
+    faits: dict[str, Any],
+    confort_valide: bool,
+    configuration_a_jour: bool = False,
+    profils_configures: bool = False,
+) -> str:
+    """Retourne la première étape du parcours guidé qui reste à accomplir."""
+    if not faits.get("internet") or not faits.get("ip"):
+        return "network"
+    attendus = ("python3", "python3-venv", "python3-tk", "ffmpeg", "mosquitto", "obs-studio", "avahi-daemon", "avahi-utils", "onboard")
+    if not faits.get("venv") or not all(faits.get("paquets", {}).get(nom, False) for nom in attendus):
+        return "install"
+    if not confort_valide:
+        return "tablet"
+    if not faits.get("obs_actif"):
+        return "obs"
+    if faits.get("websocket") != "joignable":
+        return "websocket"
+    config = faits.get("config", {})
+    obs_config = config.get("obs", {})
+    sources_attendues = {
+        obs_config.get("scene", ""),
+        *(obs_config.get(f"source_{nom}", "") for nom in (
+            "selfie", "carte", "vitesse", "pulsations", "meteo", "heure"
+        )),
+        config.get("chat", {}).get("source_name", ""),
+        *(source.get("obs_source_name", "") for source in config.get("video_sources", [])),
+    } - {""}
+    presentes = set(faits.get("scenes", [])) | set(faits.get("sources", []))
+    if not sources_attendues <= presentes:
+        return "scenes"
+    if not configuration_a_jour:
+        return "configuration"
+    if not profils_configures:
+        return "keys"
+    return "launch"
+
+
+def etat_bouton_obs(obs_actif: bool) -> str:
+    """Grise le lancement OBS si le processus existe déjà."""
+    return "disabled" if obs_actif else "normal"
+
+
+def marquer_premier_lancement_obs(chemin: Path) -> Path | None:
+    """Déclare le premier lancement OBS traité, en sauvegardant toute configuration présente."""
+    chemin = Path(chemin)
+    contenu = chemin.read_text(encoding="utf-8") if chemin.exists() else ""
+    general = re.search(r"(?m)^\[General\][ \t]*$", contenu)
+    if general:
+        debut = general.end()
+        section_suivante = re.search(r"(?m)^\[", contenu[debut:])
+        fin = debut + section_suivante.start() if section_suivante else len(contenu)
+        bloc = contenu[debut:fin]
+        if re.search(r"(?m)^FirstRun\s*=\s*true\s*$", bloc, re.IGNORECASE):
+            return None
+        if re.search(r"(?m)^FirstRun\s*=", bloc):
+            bloc = re.sub(r"(?m)^FirstRun\s*=.*$", "FirstRun=true", bloc, count=1)
+        else:
+            bloc = bloc.rstrip() + "\nFirstRun=true\n"
+        contenu = contenu[:debut] + bloc + contenu[fin:]
+    else:
+        contenu = contenu.rstrip() + "\n\n[General]\nFirstRun=true\n"
+    sauvegarde = None
+    if chemin.exists():
+        sauvegarde = chemin.with_name(
+            f"{chemin.name}.{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}.bak"
+        )
+        shutil.copy2(chemin, sauvegarde)
+        os.chmod(sauvegarde, 0o600)
+    chemin.parent.mkdir(parents=True, exist_ok=True)
+    descripteur, temporaire = tempfile.mkstemp(dir=chemin.parent, prefix=".obs-global.")
+    try:
+        with os.fdopen(descripteur, "w", encoding="utf-8") as fichier:
+            fichier.write(contenu)
+            fichier.flush()
+            os.fsync(fichier.fileno())
+        os.chmod(temporaire, 0o600)
+        os.replace(temporaire, chemin)
+    except Exception:
+        Path(temporaire).unlink(missing_ok=True)
+        raise
+    return sauvegarde
 
 
 def ecrire_configuration_wifi(
@@ -141,7 +237,7 @@ def collecter_faits(repertoire: Path = REPO_DIR) -> dict[str, Any]:
     config = charger_configuration(repertoire_depot=repertoire)
     paquets = {
         nom: "install ok installed" in _commande("dpkg-query", "-W", "-f=${Status}", nom)
-        for nom in ("python3", "python3-venv", "python3-tk", "ffmpeg", "mosquitto", "obs-studio", "avahi-daemon", "onboard")
+        for nom in ("python3", "python3-venv", "python3-tk", "ffmpeg", "mosquitto", "obs-studio", "avahi-daemon", "avahi-utils", "onboard")
     }
     obs_actif = bool(_commande("pgrep", "-x", "obs"))
     websocket = "absent"
@@ -150,6 +246,10 @@ def collecter_faits(repertoire: Path = REPO_DIR) -> dict[str, Any]:
     navigateur = False
     reception_srt: bool | None = None
     avahi_actif = _commande("systemctl", "is-active", "avahi-daemon") == "active"
+    nom_hote = _commande("hostname") or "dietpi"
+    avahi_resolu: bool | None = None if avahi_actif else False
+    if avahi_actif and shutil.which("avahi-resolve-host-name"):
+        avahi_resolu = bool(_commande("avahi-resolve-host-name", f"{nom_hote}.local"))
     if obs_actif:
         try:
             from obsws_python import ReqClient
@@ -220,8 +320,9 @@ def collecter_faits(repertoire: Path = REPO_DIR) -> dict[str, Any]:
         "interface_reseau": interface,
         "ssid": ssid,
         "internet": internet,
-        "nom_local": f"{_commande('hostname') or 'dietpi'}.local",
+        "nom_local": f"{nom_hote}.local",
         "avahi_actif": avahi_actif,
+        "avahi_resolu": avahi_resolu,
         "voisins": voisins,
         "video": video,
         "ecoute_srt": ecoute_srt,
@@ -242,7 +343,7 @@ def construire_rapport(faits: dict[str, Any], textes: dict[str, str]) -> Rapport
         verifications.append(Verification(cle, etat, textes[message].format(**variables)))
 
     paquets = faits["paquets"]
-    for nom in ("python3", "python3-venv", "python3-tk", "ffmpeg", "mosquitto", "obs-studio", "avahi-daemon", "onboard"):
+    for nom in ("python3", "python3-venv", "python3-tk", "ffmpeg", "mosquitto", "obs-studio", "avahi-daemon", "avahi-utils", "onboard"):
         ajouter(f"paquet_{nom}", "ok" if paquets[nom] else "alerte", f"check_{nom}_ok" if paquets[nom] else f"check_{nom}_missing")
     ajouter("venv", "ok" if faits["venv"] else "alerte", "check_venv_ok" if faits["venv"] else "check_venv_missing")
     ajouter("obs_actif", "ok" if faits["obs_actif"] else "alerte", "check_obs_running" if faits["obs_actif"] else "check_obs_stopped")
@@ -263,6 +364,13 @@ def construire_rapport(faits: dict[str, Any], textes: dict[str, str]) -> Rapport
     manquantes = [nom for nom in attendues if nom and nom not in faits["scenes"] and nom not in faits["sources"]]
     ajouter("scenes_sources", "ok" if not manquantes else "alerte", "check_scenes_ok" if not manquantes else "check_scenes_missing")
     ajouter("source_navigateur", "ok" if faits["navigateur"] else "alerte", "check_browser_ok" if faits["navigateur"] else "check_browser_missing")
+    mdns_resolu = faits.get("avahi_resolu")
+    if mdns_resolu is True:
+        ajouter("mdns", "ok", "check_mdns_ok")
+    elif mdns_resolu is False:
+        ajouter("mdns", "alerte", "check_mdns_failed")
+    else:
+        ajouter("mdns", "alerte", "check_mdns_unknown")
     ajouter("bluetooth", "ok" if "Powered: yes" in faits["bluetooth"] else "alerte", "check_bluetooth_ok" if "Powered: yes" in faits["bluetooth"] else "check_bluetooth_missing")
     ajouter("bnep_mqtt", "ok" if faits["bnep"] and faits["mqtt_actif"] else "alerte", "check_bnep_ok" if faits["bnep"] and faits["mqtt_actif"] else "check_bnep_missing")
     ajouter(
@@ -283,12 +391,15 @@ def construire_rapport(faits: dict[str, Any], textes: dict[str, str]) -> Rapport
         "check_audio_ok" if faits["audio"] else "check_audio_missing",
         devices=", ".join(faits["audio"].splitlines()),
     )
+    srt_nom, srt_ip = construire_adresses_srt(faits["nom_local"], faits["ip"])
     reseau = {
         "ip": faits["ip"] or textes["unknown"],
         "passerelle": faits["passerelle"] or textes["unknown"],
         "nom_local": faits["nom_local"] if faits["avahi_actif"] else textes["mdns_unavailable"].format(host=faits["nom_local"]),
         "telephone": _trouver_voisin(faits["voisins"], faits["passerelle"]) or textes["unknown"],
-        "srt": f"srt://{faits['nom_local'] if faits['avahi_actif'] else faits['ip'] or 'ADRESSE_DU_RASPBERRY'}:9001?mode=caller",
+        "srt": srt_nom if faits["avahi_actif"] else srt_ip or srt_nom,
+        "srt_nom": srt_nom or textes["unknown"],
+        "srt_ip": srt_ip or textes["unknown"],
         "interface": (
             textes["network_wifi"].format(interface=faits["interface_reseau"])
             if faits.get("interface_reseau", "").startswith("wl")
@@ -305,7 +416,7 @@ def construire_rapport(faits: dict[str, Any], textes: dict[str, str]) -> Rapport
 def essentiels_valides(faits: dict[str, Any], confort_valide: bool) -> bool:
     """Décide si le premier assistant peut passer à la configuration du direct."""
     paquets = faits.get("paquets", {})
-    attendus = ("python3", "python3-venv", "python3-tk", "ffmpeg", "mosquitto", "obs-studio", "avahi-daemon", "onboard")
+    attendus = ("python3", "python3-venv", "python3-tk", "ffmpeg", "mosquitto", "obs-studio", "avahi-daemon", "avahi-utils", "onboard")
     config = faits.get("config", {})
     obs_config = config.get("obs", {})
     attendues = {
@@ -461,9 +572,52 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
     cadre.pack(fill="both", expand=True)
     ttk.Style(fenetre).configure("TButton", padding=(12, 9), font=("TkDefaultFont", 12))
     ttk.Label(cadre, text=textes["intro"], wraplength=850).pack(anchor="w", pady=6)
+    parcours = ttk.Frame(cadre)
+    parcours.pack(fill="x", pady=4)
+    progression_var = tk.StringVar()
+    ttk.Label(parcours, textvariable=progression_var, font=("TkDefaultFont", 13, "bold")).pack(anchor="w")
+    bouton_parcours = ttk.Button(
+        parcours, text=textes["guided_next"].format(step=textes["step_network"]),
+        command=lambda: avancer_parcours(),
+    )
+    bouton_parcours.pack(fill="x", pady=5, ipady=8)
+    bouton_mode = ttk.Button(
+        parcours, text=textes["mode_advanced"], command=lambda: basculer_mode()
+    )
+    bouton_mode.pack(anchor="e")
+    ttk.Button(
+        parcours, text=textes["button_refresh"],
+        command=lambda: actualiser(force=True),
+    ).pack(anchor="e")
+    et_apres_obs = ttk.Label(parcours, text="", wraplength=940, justify="left")
     reseau_var = tk.StringVar()
     reseau_label = ttk.Label(cadre, textvariable=reseau_var, wraplength=940, font=("TkDefaultFont", 12))
     reseau_label.pack(anchor="w", pady=6)
+    srt_nom_var = tk.StringVar(value=rapport.reseau.get("srt_nom", ""))
+    srt_ip_var = tk.StringVar(value=rapport.reseau.get("srt_ip", ""))
+    adresses_srt = ttk.Frame(cadre)
+    adresses_srt.pack(fill="x", pady=2)
+    ttk.Label(adresses_srt, text=textes["srt_name_label"]).grid(row=0, column=0, sticky="w")
+    entree_srt_nom = ttk.Entry(adresses_srt, textvariable=srt_nom_var, state="readonly", font=("TkDefaultFont", 11))
+    entree_srt_nom.grid(row=1, column=0, sticky="ew", padx=(0, 4))
+    ttk.Button(
+        adresses_srt, text=textes["srt_copy"],
+        command=lambda: copier_adresse(srt_nom_var.get()),
+    ).grid(row=1, column=1, padx=(0, 12))
+    ttk.Label(adresses_srt, text=textes["srt_ip_label"]).grid(row=0, column=2, sticky="w")
+    entree_srt_ip = ttk.Entry(adresses_srt, textvariable=srt_ip_var, state="readonly", font=("TkDefaultFont", 11))
+    entree_srt_ip.grid(row=1, column=2, sticky="ew", padx=(0, 4))
+    ttk.Button(
+        adresses_srt, text=textes["srt_copy"],
+        command=lambda: copier_adresse(srt_ip_var.get()),
+    ).grid(row=1, column=3)
+    adresses_srt.columnconfigure(0, weight=1)
+    adresses_srt.columnconfigure(2, weight=1)
+    aide_srt = ttk.Label(cadre, text=textes["srt_phone_hint"], wraplength=940)
+    aide_srt.pack(anchor="w", pady=(0, 4))
+    derniere_verification = tk.StringVar()
+    etiquette_derniere_verification = ttk.Label(cadre, textvariable=derniere_verification)
+    etiquette_derniere_verification.pack(anchor="w")
     banniere = ttk.Label(cadre, text="", wraplength=940, font=("TkDefaultFont", 14, "bold"))
     banniere.pack(anchor="w", pady=4)
     onglets = ttk.Notebook(cadre)
@@ -490,7 +644,7 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
         lignes_par_onglet[cle] = lignes
     groupes = {
         "essential": {"venv", "obs_actif", "websocket", "scenes_sources", "source_navigateur"},
-        "recommended": {"capture_usb", "srt", "srt_reception", "audio"},
+        "recommended": {"capture_usb", "srt", "srt_reception", "audio", "mdns"},
         "optional": {"bluetooth", "bnep_mqtt"},
     }
     etiquette_lignes: dict[str, Any] = {}
@@ -520,8 +674,9 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
     obs_demarrage = False
     reconnexion_en_cours = False
     ttk.Label(cadre, textvariable=statut_actions, wraplength=940).pack(anchor="w", pady=4)
+    mode_avance = True
 
-    fichier_confort = Path.home() / ".config" / "nomade" / "primum-initium-tablette.ok"
+    fichier_confort = repertoire_config_utilisateur() / "nomade" / "primum-initium-tablette.ok"
     confort_valide = fichier_confort.is_file()
     reseau_var.set(textes["network_info"].format(**rapport.reseau))
     banniere.configure(
@@ -531,6 +686,13 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
 
     def confirmer(message: str) -> bool:
         return messagebox.askyesno(textes["confirm_title"], message, parent=fenetre)
+
+    def copier_adresse(adresse: str) -> None:
+        if not adresse or adresse == textes["unknown"]:
+            return
+        fenetre.clipboard_clear()
+        fenetre.clipboard_append(adresse)
+        statut_actions.set(textes["srt_copied"])
 
     def lancer_administrateur(*commande: str) -> bool:
         if not shutil.which("pkexec"):
@@ -567,13 +729,24 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
         )
         if choix is None:
             return
+        if not confirmer(textes["confirm_obs_first_run"]):
+            return
+        try:
+            sauvegarde_global = marquer_premier_lancement_obs(
+                repertoire_config_utilisateur() / "obs-studio" / "global.ini"
+            )
+        except OSError as exc:
+            messagebox.showerror(textes["title"], textes["action_error"].format(error=exc), parent=fenetre)
+            return
         chemin = repertoire / "scripts" / (
             "lancer_obs_preparation.sh" if choix else "lancer_obs_direct.sh"
         )
         try:
             obs_demarrage = True
             subprocess.Popen([str(chemin)], cwd=repertoire, start_new_session=True)
-            statut_actions.set(textes["obs_launching"])
+            statut_actions.set(textes["obs_launching"].format(
+                backup=sauvegarde_global or textes["new_file"]
+            ))
         except OSError as exc:
             messagebox.showerror(textes["title"], textes["action_error"].format(error=exc), parent=fenetre)
 
@@ -621,6 +794,33 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
             changes=resume
         )):
             sauvegarder_configuration()
+
+    def importer_modele() -> None:
+        if not confirmer(textes["guided_scene_confirm"]):
+            return
+        try:
+            from obsws_python import ReqClient
+            from installer_scenes_obs import (
+                ajouter_modele,
+                charger_modele,
+                sauvegarder_collections,
+            )
+
+            client = ReqClient("127.0.0.1", 4455, os.environ.get("OBS_MDP", ""), timeout=3)
+            scene_dir = repertoire_config_utilisateur() / "obs-studio" / "basic" / "scenes"
+            sauvegardes = sauvegarder_collections(scene_dir)
+            modele = charger_modele(
+                repertoire / "examples" / "nomade-scenes.json",
+                Path(faits_courants["config"]["paths"]["data_dir"]),
+            )
+            ajoutes, ignores = ajouter_modele(client, modele)
+            statut_actions.set(textes["guided_scene_done"].format(
+                added=ajoutes, skipped=ignores,
+                backups=", ".join(map(str, sauvegardes)) or textes["scene_backup_none"]
+            ))
+            actualiser()
+        except Exception as erreur:
+            messagebox.showerror(textes["title"], textes["scene_error"].format(error=erreur), parent=fenetre)
 
     def corriger_wifi() -> None:
         services = _commande("systemctl", "list-units", "--all", "--no-legend")
@@ -769,7 +969,7 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
             if resultat.returncode != 0:
                 messagebox.showerror(textes["title"], textes["action_error"].format(error=resultat.returncode), parent=fenetre)
                 return
-        conf = Path.home() / ".config" / "libfm" / "libfm.conf"
+        conf = repertoire_config_utilisateur() / "libfm" / "libfm.conf"
         conf.parent.mkdir(parents=True, exist_ok=True)
         avant = conf.read_text(encoding="utf-8") if conf.exists() else ""
         if conf.exists():
@@ -789,7 +989,7 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
         else:
             avant = avant.rstrip() + "\n\n[config]\nsingle_click=1\n"
         conf.write_text(avant, encoding="utf-8")
-        demarrage = Path.home() / ".config" / "autostart" / "onboard.desktop"
+        demarrage = repertoire_config_utilisateur() / "autostart" / "onboard.desktop"
         if not demarrage.exists():
             demarrage.parent.mkdir(parents=True, exist_ok=True)
             demarrage.write_text(
@@ -797,6 +997,7 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
                 encoding="utf-8",
             )
         messagebox.showinfo(textes["title"], textes["tablet_done"], parent=fenetre)
+        valider_confort()
 
     def valider_confort() -> None:
         nonlocal confort_valide
@@ -833,8 +1034,69 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
             return
         fenetre.destroy()
 
+    def avancer_parcours() -> None:
+        etape = etape_suivante(
+            faits_courants,
+            confort_valide,
+            configuration_a_jour=not calculer_modifications(
+                repertoire / "config" / "nomade.local.toml", informations_configuration()
+            ),
+            profils_configures=any(
+                (repertoire_config_utilisateur() / "obs-studio" / "basic" / "profiles" / f"Nomade - {nom}" / "service.json").is_file()
+                for nom in ("Twitch", "Kick", "YouTube", "Facebook Live", "Velora", "Restream.io", "Personnalisé")
+            ),
+        )
+        if etape == "network":
+            reconnecter()
+        elif etape == "install":
+            installer()
+        elif etape == "tablet":
+            confort_tablette()
+        elif etape == "obs":
+            demarrer_obs()
+        elif etape == "websocket":
+            messagebox.showinfo(textes["title"], textes["guided_websocket_help"], parent=fenetre)
+            configurer_mot_de_passe_obs()
+        elif etape == "scenes":
+            importer_modele()
+        elif etape == "configuration":
+            ecrire_local()
+        else:
+            try:
+                subprocess.Popen(
+                    [sys.executable, str(repertoire / "scripts" / "emissio.py")],
+                    cwd=repertoire,
+                    start_new_session=True,
+                )
+                statut_actions.set(textes["guided_open_emissio"])
+            except OSError as exc:
+                messagebox.showerror(textes["title"], textes["action_error"].format(error=exc), parent=fenetre)
+
+    def basculer_mode() -> None:
+        nonlocal mode_avance
+        mode_avance = not mode_avance
+        widgets = (
+            reseau_label, adresses_srt, aide_srt, banniere, onglets,
+            panneau_reseau, etiquette_tactile, actions, bouton_suivant,
+        )
+        if mode_avance:
+            reseau_label.pack(anchor="w", pady=6)
+            adresses_srt.pack(fill="x", pady=2)
+            aide_srt.pack(anchor="w", pady=(0, 4))
+            banniere.pack(anchor="w", pady=4)
+            onglets.pack(fill="both", expand=True)
+            panneau_reseau.pack(fill="x", pady=2)
+            etiquette_tactile.pack(anchor="w", pady=3, padx=8)
+            actions.pack(fill="x", pady=8)
+            bouton_suivant.pack(fill="x", pady=4)
+            bouton_mode.configure(text=textes["mode_guided"])
+        else:
+            for widget in widgets:
+                widget.pack_forget()
+            bouton_mode.configure(text=textes["mode_advanced"])
+
     def autostart() -> None:
-        chemin = Path.home() / ".config" / "autostart" / "nomade-primum-initium.desktop"
+        chemin = repertoire_config_utilisateur() / "autostart" / "nomade-primum-initium.desktop"
         if chemin.exists():
             if confirmer(textes["confirm_autostart_remove"]):
                 chemin.unlink()
@@ -877,9 +1139,11 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
         ("tablet_validate_button", valider_confort),
         ("button_autostart", autostart),
     )
+    boutons_actions: dict[str, Any] = {}
     for index, (cle, commande) in enumerate(commandes):
         bouton = ttk.Button(actions, text=textes[cle], command=commande)
         bouton.grid(row=index // 4, column=index % 4, sticky="ew", padx=4, pady=4)
+        boutons_actions[cle] = bouton
     for colonne in range(4):
         actions.columnconfigure(colonne, weight=1)
     bouton_suivant = ttk.Button(cadre, text=textes["button_next"], command=suivant, state="disabled")
@@ -893,15 +1157,54 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
             obs_demarrage = False
         rapport_courant = construire_rapport(nouveaux, textes)
         reseau_var.set(textes["network_info"].format(**rapport_courant.reseau))
+        srt_nom_var.set(rapport_courant.reseau["srt_nom"])
+        srt_ip_var.set(rapport_courant.reseau["srt_ip"])
+        derniere_verification.set(
+            textes["diagnostic_last_updated"].format(
+                time=datetime.now().astimezone().strftime("%d/%m/%Y %H:%M:%S")
+            )
+        )
         if nouveaux.get("internet"):
             banniere.configure(text=textes["network_connected"])
         else:
             banniere.configure(text=textes["network_disconnected"])
+        if nouveaux.get("obs_actif"):
+            et_apres_obs.configure(text=textes["after_obs"])
+            if not et_apres_obs.winfo_manager():
+                et_apres_obs.pack(anchor="w", pady=4)
+        else:
+            et_apres_obs.pack_forget()
         for ligne in rapport_courant.verifications:
             etiquette = etiquette_lignes.get(ligne.cle)
             if etiquette:
                 symbole = {"ok": "✔", "alerte": "⚠", "erreur": "✘"}[ligne.etat]
                 etiquette.configure(text=f"{symbole}  {textes.get('label_' + ligne.cle, ligne.cle)} : {ligne.message}")
+        if nouveaux.get("obs_actif"):
+            boutons_actions["obs_button"].configure(
+                text=textes["obs_already_running_status"], state=etat_bouton_obs(True)
+            )
+        else:
+            boutons_actions["obs_button"].configure(
+                text=textes["obs_button"], state=etat_bouton_obs(False)
+            )
+        configuration_a_jour = not calculer_modifications(
+            repertoire / "config" / "nomade.local.toml", informations_configuration()
+        )
+        profiles_configures = any(
+            (repertoire_config_utilisateur() / "obs-studio" / "basic" / "profiles" / f"Nomade - {nom}" / "service.json").is_file()
+            for nom in ("Twitch", "Kick", "YouTube", "Facebook Live", "Velora", "Restream.io", "Personnalisé")
+        )
+        ordre_etapes = (
+            "network", "install", "tablet", "obs", "websocket",
+            "scenes", "configuration", "keys", "launch",
+        )
+        etape = etape_suivante(nouveaux, confort_valide, configuration_a_jour, profiles_configures)
+        numero = ordre_etapes.index(etape) + 1
+        faits_accomplis = " ".join("✔" for _ in range(numero - 1)) or "—"
+        progression_var.set(textes["guided_progress"].format(
+            number=numero, total=len(ordre_etapes), done=faits_accomplis
+        ))
+        bouton_parcours.configure(text=textes["guided_next"].format(step=textes[f"step_{etape}"]))
         etiquette_tactile.configure(
             text=f"{'✔' if confort_valide else '⚠'}  {textes['tablet_status_' + ('ready' if confort_valide else 'pending')]}"
         )
@@ -938,18 +1241,9 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
                 statut_actions.set(textes["diagnostic_updated"])
         fenetre.after(250, verifier_actualisation)
 
-    if not _commande("pgrep", "-x", "obs"):
-        try:
-            obs_demarrage = True
-            subprocess.Popen(
-                [str(repertoire / "scripts" / "lancer_obs_preparation.sh")],
-                cwd=repertoire,
-                start_new_session=True,
-            )
-        except OSError:
-            obs_demarrage = False
     actualiser()
     verifier_actualisation()
+    basculer_mode()
 
     def programmer_actualisation() -> None:
         actualiser()
@@ -998,17 +1292,24 @@ def main() -> int:
         print(textes["wifi_written"])
         return 0
     if args.reconnect:
-        etapes = (
-            "wifi_step_unblock",
-            "wifi_step_scan",
-            "wifi_step_reconfigure",
-            "wifi_step_down",
-            "wifi_step_up",
-            "wifi_step_networking",
-        )
-        for index, (_commande_nom, code, sortie) in enumerate(reconnecter_wifi()):
-            etat = textes["wifi_step_ok"] if code == 0 else textes["wifi_step_failed"]
-            print(textes["wifi_step_result"].format(step=textes[etapes[index]], status=etat, output=sortie))
+        etapes = {
+            "systemctl": "wifi_step_networking",
+            "rfkill": "wifi_step_unblock",
+            "iw": "wifi_step_scan",
+            "wpa_cli": "wifi_step_reconfigure",
+            "ifdown": "wifi_step_down",
+            "ifup": "wifi_step_up",
+        }
+        for _commande_nom, code, sortie in reconnecter_wifi():
+            etat = (
+                textes["wifi_step_missing"] if code == 2
+                else textes["wifi_step_ok"] if code == 0
+                else textes["wifi_step_failed"]
+            )
+            detail = "" if sortie == "outil_absent" else sortie
+            print(textes["wifi_step_result"].format(
+                step=textes[etapes[_commande_nom]], status=etat, output=detail
+            ))
         return 0
     try:
         faits = collecter_faits()

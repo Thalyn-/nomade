@@ -12,7 +12,12 @@ from typing import Any
 import paho.mqtt.client as mqtt
 
 from nomade_config import ErreurConfiguration, charger_configuration
-from nomade_utils import ecrire_json_atomique, valider_charge_capteurs
+from nomade_utils import (
+    charger_traductions,
+    ecrire_affichages_capteurs,
+    ecrire_json_atomique,
+    valider_charge_capteurs,
+)
 
 
 def analyser_arguments() -> argparse.Namespace:
@@ -32,6 +37,7 @@ def analyser_arguments() -> argparse.Namespace:
     parser.add_argument("--mqtt-mot-de-passe", default=os.environ.get("NOMADE_MQTT_MOT_DE_PASSE"))
     parser.add_argument("--mqtt-keepalive", type=int)
     parser.add_argument("--fichier-sortie")
+    parser.add_argument("--initialiser-affichages", action="store_true")
     return parser.parse_args()
 
 
@@ -52,6 +58,8 @@ class ServiceCapteursMQTT:
         keepalive: int,
         fichier_sortie: Path,
         client_id: str,
+        repertoire_donnees: Path | None = None,
+        textes: dict[str, str] | None = None,
         utilisateur: str | None = None,
         mot_de_passe: str | None = None,
     ) -> None:
@@ -60,6 +68,8 @@ class ServiceCapteursMQTT:
         self.sujet = sujet
         self.keepalive = keepalive
         self.fichier_sortie = fichier_sortie
+        self.repertoire_donnees = Path(repertoire_donnees or fichier_sortie.parent)
+        self.textes = textes or charger_traductions("fr", Path(__file__).resolve().parent.parent / "locales")
         self.client = creer_client_mqtt(client_id)
         if utilisateur:
             self.client.username_pw_set(utilisateur, mot_de_passe)
@@ -93,8 +103,11 @@ class ServiceCapteursMQTT:
             donnees = json.loads(message.payload.decode("utf-8"))
             charge = valider_charge_capteurs(donnees)
             ecrire_json_atomique(self.fichier_sortie, charge)
+            ecrire_affichages_capteurs(self.repertoire_donnees, charge, self.textes)
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
             print(f"Message capteurs ignoré : {exc}")
+        except OSError:
+            print("Les fichiers locaux d’affichage des capteurs n’ont pas pu être actualisés.")
 
 
 def main() -> int:
@@ -116,8 +129,24 @@ def main() -> int:
         keepalive=args.mqtt_keepalive or int(os.environ.get("NOMADE_MQTT_KEEPALIVE", configuration["mqtt"]["keepalive"])),
         fichier_sortie=Path(args.fichier_sortie or os.environ.get("NOMADE_FICHIER_CAPTEURS") or configuration["paths"]["capteurs_file"]),
         client_id=args.mqtt_client_id or os.environ.get("NOMADE_MQTT_CLIENT_ID") or configuration["mqtt"]["client_id"],
+        repertoire_donnees=Path(configuration["paths"]["data_dir"]),
+        textes=charger_traductions(
+            os.environ.get("NOMADE_LANGUE", configuration["general"]["language"]),
+            Path(__file__).resolve().parent.parent / "locales",
+        ),
         utilisateur=args.mqtt_utilisateur,
         mot_de_passe=args.mqtt_mot_de_passe,
+    )
+    if args.initialiser_affichages:
+        ecrire_affichages_capteurs(
+            Path(configuration["paths"]["data_dir"]),
+            {},
+            service.textes,
+            seulement_absents=True,
+        )
+        return 0
+    ecrire_affichages_capteurs(
+        Path(configuration["paths"]["data_dir"]), {}, service.textes, seulement_absents=True
     )
     return service.executer()
 

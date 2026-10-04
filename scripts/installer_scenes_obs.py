@@ -13,6 +13,26 @@ from pathlib import Path
 REPO_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_DIR / "scripts"))
 from nomade_utils import charger_traductions
+from nomade_config import charger_configuration
+
+
+def charger_modele(chemin: Path, repertoire_donnees: Path) -> dict[str, object]:
+    modele = json.loads(Path(chemin).read_text(encoding="utf-8"))
+    for source in modele.get("sources", []):
+        fichier = source.get("settings", {}).get("text_file")
+        if fichier:
+            source["settings"]["text_file"] = fichier.replace("{data_dir}", str(repertoire_donnees))
+    return modele
+
+
+def sauvegarder_collections(repertoire: Path) -> list[Path]:
+    horodatage = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    sauvegardes = []
+    for fichier in Path(repertoire).glob("*.json"):
+        destination = fichier.with_name(f"{fichier.name}.{horodatage}.bak")
+        shutil.copy2(fichier, destination)
+        sauvegardes.append(destination)
+    return sauvegardes
 
 
 def ajouter_modele(client: object, modele: dict[str, object]) -> tuple[int, int]:
@@ -34,7 +54,7 @@ def ajouter_modele(client: object, modele: dict[str, object]) -> tuple[int, int]
         client.send(
             "CreateInput",
             {
-                "sceneName": scene_cible,
+                "sceneName": source.get("scene", scene_cible),
                 "inputName": source["name"],
                 "inputKind": source["kind"],
                 "inputSettings": source["settings"],
@@ -60,14 +80,13 @@ def main() -> int:
         if input(textes["scene_confirm"] + " ").strip().lower() not in {"o", "oui", "y", "yes"}:
             print(textes["scene_cancelled"])
             return 0
-        sauvegardes = []
-        horodatage = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-        for fichier in scene_dir.glob("*.json"):
-            destination = fichier.with_name(f"{fichier.name}.{horodatage}.bak")
-            shutil.copy2(fichier, destination)
-            sauvegardes.append(str(destination))
-        print(textes["scene_backup"].format(path=", ".join(sauvegardes) or textes["scene_backup_none"]))
-        modele = json.loads((REPO_DIR / "examples/nomade-scenes.json").read_text(encoding="utf-8"))
+        sauvegardes = sauvegarder_collections(scene_dir)
+        print(textes["scene_backup"].format(path=", ".join(map(str, sauvegardes)) or textes["scene_backup_none"]))
+        configuration = charger_configuration(repertoire_depot=REPO_DIR)
+        modele = charger_modele(
+            REPO_DIR / "examples/nomade-scenes.json",
+            Path(configuration["paths"]["data_dir"]),
+        )
         ajouts, ignores = ajouter_modele(client, modele)
         print(textes["scene_done"].format(added=ajouts, skipped=ignores))
         return 0
