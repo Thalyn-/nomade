@@ -39,7 +39,7 @@ systemctl status wpa_supplicant-wlan0.service
 sudo systemctl disable --now wpa_supplicant-wlan0.service
 ```
 
-Utilisez le DHCP, sans fixer l'adresse du Raspberry : c'est particulièrement important avec un partage 5G dont le réseau peut être en `10.x.x.x`. Si le téléphone le permet, réservez l'adresse du Raspberry dans les appareils connectés. Sur Xiaomi/HyperOS, cherchez **Paramètres > Point d'accès mobile > Appareils connectés** ; cette fonction n'est pas présente sur toutes les versions. Sinon, essayez `dietpi.local` grâce à Avahi, que l'installation Nomade ajoute. Certains téléphones ne résolvent pas les noms `.local` : utilisez alors l'adresse courante affichée par le diagnostic.
+Utilisez le DHCP, sans fixer l'adresse du Raspberry : c'est particulièrement important avec un partage 5G dont le réseau peut être en `10.x.x.x`. Si le téléphone le permet, réservez l'adresse du Raspberry dans les appareils connectés. Sur Xiaomi/HyperOS, cherchez **Paramètres > Point d'accès mobile > Appareils connectés** ; cette fonction n'est pas présente sur toutes les versions. Essayez ensuite le nom `.local` affiché par l'assistant ; certains téléphones ne le résolvent pas et nécessitent l'adresse IP courante.
 
 ### Déconnexions répétées : correctif conditionnel
 
@@ -62,15 +62,15 @@ Si le nom affiché est différent, adaptez la commande au nom réellement trouv�
 Depuis un terminal local, ces commandes permettent de débloquer et relancer le Wi-Fi. Elles peuvent couper brièvement la connexion ; gardez un écran et un clavier à disposition :
 
 ```bash
+sudo systemctl restart networking
 sudo rfkill unblock wifi
 sudo wpa_cli -i wlan0 reconfigure
 sudo ifdown wlan0 && sudo ifup wlan0
-sudo systemctl restart networking
 ip a
 ping -c 3 deb.debian.org
 ```
 
-La dernière commande de relance est un dernier recours, car elle peut interrompre les autres connexions réseau.
+Commencez par `sudo systemctl restart networking` : c'est la relance qui a rétabli le Wi-Fi lors du test réel. Cette commande peut couper brièvement les connexions. Si `rfkill` est introuvable, passez cette étape sans bloquer le dépannage ; vous pouvez l'installer avec `sudo apt install rfkill`, puis réessayer. Les commandes `wpa_cli`, `ifdown` et `ifup` peuvent elles aussi être absentes selon l'installation.
 
 Enfin, ne confondez pas les deux flux : SRT transporte la vidéo en **UDP**, sur le port `9001` par défaut ; le contrôle obs-websocket utilise **TCP**, sur `127.0.0.1:4455`. Ces ports et protocoles sont indépendants.
 
@@ -90,11 +90,12 @@ Cette durée suppose que DietPi, le bureau LXDE et le dépôt sont déjà instal
 
 1. Branchez le Raspberry Pi, son écran et son alimentation ; connectez la clé d'acquisition et le téléphone si vous les utilisez.
 2. Depuis le dépôt, lancez `sudo ./scripts/install_nomade.sh`. Le script installe les dépendances, OBS avec sa Source Navigateur, puis ouvre l'assistant de premier démarrage (ou affiche son diagnostic dans le terminal).
-3. PrimumInitium lance OBS en mode préparation s'il n'est pas déjà ouvert. Dans OBS, activez obs-websocket sur `127.0.0.1:4455`, choisissez un mot de passe, puis préparez les scènes et sources. Le modèle est importable avec `./scripts/installer_scenes_obs.sh` ; il faut encore l'adapter au matériel.
-4. Pour un téléphone en SRT, créez dans OBS une Source Média en écoute sur le port UDP `9001`, puis saisissez l'adresse affichée par l'assistant dans Larix Broadcaster.
-5. Lancez `export OBS_MDP='votre_mot_de_passe'` puis `./scripts/lancer_nomade.sh`.
+3. Dans PrimumInitium, suivez le grand bouton **Étape suivante**. Il guide le réseau, l'installation, le confort tactile, OBS, les scènes, les informations locales et les clés de diffusion. **Mode avancé** conserve les commandes et le bilan détaillé.
+4. Configurez obs-websocket sur `127.0.0.1:4455` et importez le modèle Nomade lorsque l'assistant le propose. Adaptez ensuite les sources à votre matériel.
+5. Dans Larix, essayez l'adresse SRT `.local` affichée par l'assistant ; si le téléphone ne résout pas ce nom, copiez l'adresse IP affichée à côté. SRT utilise le port UDP `9001`.
+6. Une fois une plateforme configurée, sélectionnez-la dans Emissio et lancez le direct. OBS utilise alors son profil dédié.
 
-Les préréglages Nomade ne font qu'activer ou désactiver des **sources et scènes déjà créées** : ils n'en créent aucune. La préparation ou l'import du modèle OBS est donc indispensable.
+Les préréglages Nomade ne font qu'activer ou désactiver des **sources et scènes déjà créées** : ils n'en créent aucune. L'import du modèle OBS depuis le parcours guidé ou `./scripts/installer_scenes_obs.sh` est donc indispensable.
 
 ## 2. Matériel nécessaire
 
@@ -154,7 +155,7 @@ Dans un terminal ouvert dans le dépôt :
 sudo ./scripts/install_nomade.sh
 ```
 
-Le script installe les outils système, Python/Tk, `ffmpeg`, `avahi-daemon`, Mosquitto et OBS avec la Source Navigateur, puis crée l'environnement Python Nomade. Il lance ensuite PrimumInitium : fenêtre graphique si l'installation est lancée depuis LXDE, rapport de diagnostic dans le terminal sinon. Il ne désactive aucun service système.
+Le script installe les outils système, Python/Tk, `ffmpeg`, `avahi-daemon`, `avahi-utils`, Mosquitto et OBS avec la Source Navigateur, puis crée l'environnement Python Nomade. Il lance ensuite PrimumInitium : fenêtre graphique si l'installation est lancée depuis LXDE, rapport de diagnostic dans le terminal sinon. Il ne désactive aucun service système.
 
 L'installation ajoute aussi les outils Wi-Fi (`wpasupplicant`, `iw`, `rfkill`), Avahi et le clavier virtuel libre Onboard. PrimumInitium propose les réglages tactiles et attend une validation explicite avant de permettre de passer à Emissio. La correction du Wi-Fi et les autres changements système restent des actions explicites de l'assistant.
 
@@ -172,9 +173,21 @@ Les essais rapportés sur une installation fraîche de DietPi ont validé `scrip
 
 L'assistant graphique et son mode terminal se lancent avec `./scripts/primum_initium.sh` et `./scripts/primum_initium.sh --diagnostic`. Quand les prérequis essentiels sont validés, PrimumInitium ouvre Emissio pour choisir une plateforme et préparer le service OBS. Une proposition d'ouverture automatique au démarrage de LXDE est facultative et peut être retirée depuis le même bouton.
 
-Emissio (du latin « diffusion ») est également lançable directement avec `./scripts/emissio.py`. Choisissez Twitch, Kick, YouTube, Facebook Live, Velora, Restream.io ou une destination personnalisée. Les serveurs évoluent et varient selon les régions : consultez la documentation de la plateforme et saisissez l'adresse indiquée par celle-ci. La clé RTMP/RTMPS est écrite uniquement dans `service.json` du profil OBS local, avec droits `600` et sauvegarde ; les paramètres SRT sont écrits dans `config/nomade.secrets`, un fichier ignoré par Git et protégé en mode `600`. Aucun secret n'est écrit dans la configuration suivie par Git ou dans les journaux. Le test vérifie uniquement la joignabilité du serveur ; il ne démarre pas de diffusion. Le multistream complet reste hors périmètre ; Restream.io peut servir de destination intermédiaire. Pour SRT en émission, configurez et vérifiez la sortie correspondante dans OBS avant de lancer le direct ; Emissio ne peut pas appliquer cette sortie automatiquement.
+Emissio (`./scripts/emissio.py`) propose Twitch, Kick, YouTube, Facebook Live, Velora, Restream.io et une destination personnalisée. Il crée un **profil OBS par plateforme** (`Nomade - Twitch`, `Nomade - Kick`, etc.) en copiant les réglages vidéo/audio de `Nomade direct fixe` ; seule la destination et la clé diffèrent. Saisissez chaque clé une fois ; Emissio la recharge depuis le profil local lorsqu'on revient sur cette plateforme. Les adresses de serveur ne sont volontairement pas préremplies : consultez la documentation de la plateforme et saisissez le serveur actuel, qui peut dépendre de la région.
+
+Les clés sont conservées en clair dans `service.json` du profil OBS local. Nomade sauvegarde l'ancien fichier et protège profils, clés et sauvegardes avec les droits `600`/`700`. Elles ne sont ni suivies par Git ni écrites dans les journaux. **Ne partagez pas une sauvegarde de la carte microSD** sans retirer au préalable les profils OBS et leurs clés. Pour lancer un direct natif, choisissez une plateforme dans Emissio : une seule plateforme à la fois est prise en charge nativement. Pour diffuser simultanément vers plusieurs plateformes, configurez **un seul flux sortant vers Restream.io**, qui assure ensuite la redistribution ; Nomade n'installe aucun greffon multi-RTMP non garanti sur ARM64.
+
+Le test Emissio vérifie uniquement la joignabilité du serveur ; il ne démarre pas de diffusion. Pour SRT en émission, configurez et vérifiez la sortie correspondante dans OBS avant de lancer le direct ; Emissio ne peut pas appliquer cette sortie automatiquement.
 
 Le bouton de PrimumInitium dédié à `OBS_MDP` aide à choisir puis enregistrer ce secret dans `config/nomade.secrets`. Saisissez ensuite le même mot de passe dans les paramètres obs-websocket d'OBS. Le fichier local n'est jamais suivi par Git ; le programme le protège avec les droits `600` et le charge pour les lancements ultérieurs.
+
+Au premier lancement OBS, PrimumInitium propose de sauvegarder puis régler `~/.config/obs-studio/global.ini`, section `[General]`, clé `FirstRun=true`. Dans le code OBS 30.2.3, l'assistant automatique est lancé si `FirstRun` est faux, qu'aucune version précédente n'est enregistrée et qu'OBS n'est pas déjà actif ; la valeur vraie évite donc cette ouverture ([source OBSBasic](https://github.com/obsproject/obs-studio/blob/30.2.3/UI/window-basic-main.cpp)). Les autres paramètres OBS ne sont pas remplacés. OBS crée toutefois lui-même sa collection de base au démarrage ([création de collection](https://github.com/obsproject/obs-studio/blob/30.2.3/UI/window-basic-main-scene-collections.cpp)) : l'import du modèle Nomade s'effectue ensuite par l'étape guidée, via obs-websocket, après confirmation et sauvegarde des collections présentes. La création préalable d'une collection OBS complète et portable sans démarrer OBS n'est pas implémentée ; le premier affichage ne peut donc pas garantir que les scènes Nomade existent avant le lancement du processus OBS.
+
+### Affichage des capteurs dans les scènes OBS
+
+Le modèle utilise la source Texte FreeType2 native d'OBS (`text_ft2_source`) en mode **Lire depuis un fichier** (`from_file=true`, `text_file=...`). `capteurs_mqtt.py` lit et valide `/var/lib/nomade/capteurs.json`, puis écrit atomiquement de petits fichiers (`overlays/vitesse.txt`, `pulsations.txt`, `carte.txt`, `meteo.txt`). Des exemples traduits sont créés à l'installation et restent affichés en attendant les premières mesures. La source FreeType2 d'OBS 30.2.3 relit le fichier environ une fois par seconde ; cette vérification a été faite dans le code amont [`text-freetype2.c`](https://github.com/obsproject/obs-studio/blob/30.2.3/plugins/text-freetype2/text-freetype2.c), source `text_ft2_source`, propriétés `from_file` et `text_file`.
+
+Cette option évite CEF, les restrictions `file://`/CORS et tout serveur HTTP ; aucun port supplémentaire n'est ouvert. Les fichiers sont atomiques et protégés en mode `600`, dans le répertoire de données local ; OBS et l'ingestion des capteurs doivent être exécutés sous le même compte. La présence réelle de cette source et son rendu avec le paquet Pi-Apps sur un Raspberry Pi 4B n'ont pas été testés ici.
 
 ### Droits administrateur pour les actions de l'assistant
 
@@ -222,7 +235,7 @@ Avant de modifier cette configuration système, faites une copie de sauvegarde, 
 
 SRT transporte la vidéo en **UDP** ; obs-websocket contrôle OBS en **TCP** sur `127.0.0.1:4455`. Dans OBS, utilisez `srt://:9001?mode=listener` (sans IP avant les deux-points) ; dans Larix, utilisez `srt://<ADRESSE_DU_RASPBERRY>:9001?mode=caller`. Ne réutilisez jamais un port déjà occupé. Vérifiez l'aperçu de la source OBS et désactivez l'aperçu du téléphone si celui-ci chauffe.
 
-Une adresse 5G dynamique n'empêche pas SRT de fonctionner. Préférez `dietpi.local` si le téléphone résout les noms mDNS ; sinon, utilisez l'IP courante indiquée par l'assistant.
+Une adresse 5G dynamique n'empêche pas SRT de fonctionner. Utilisez l'adresse `.local` ou l'IP courante affichée par l'assistant ; privilégiez l'IP si le téléphone ne résout pas mDNS.
 
 ## 7. Annexes avancées
 
@@ -297,7 +310,7 @@ Cette version ne prétend pas fournir un « OBS headless » complet, car OBS Stu
 
 Le partage de connexion 5G peut fournir une passerelle et une adresse qui changent (par exemple une adresse en `10.x.x.x`). Laissez le Raspberry en **DHCP pur** ; ne configurez pas d'adresse IP statique dessus. Si le téléphone le permet, réservez l'adresse du Raspberry dans « Appareils connectés ». Sur un Xiaomi 11T sous HyperOS cette option peut manquer ; après redémarrage, le même appareil conserve souvent son adresse grâce à son adresse MAC.
 
-Pour éviter de saisir une adresse changeante, installez/activez `avahi-daemon` (installé par Nomade) et essayez `dietpi.local`, par exemple `srt://dietpi.local:9001?mode=caller`. C'est mDNS via Avahi, sans Bonjour. Certaines applications mobiles ne savent pas résoudre les noms locaux : dans ce cas, utilisez l'IP affichée par l'assistant de diagnostic.
+Pour éviter de saisir une adresse changeante, installez/activez `avahi-daemon` (installé par Nomade) et essayez le nom réel affiché par l'assistant, par exemple `srt://dietpi.local:9001?mode=caller`. PrimumInitium affiche côte à côte cette adresse et `srt://<IP-du-Raspberry>:9001?mode=caller`, avec des boutons de copie. C'est mDNS via Avahi, sans Bonjour. Certains téléphones, dont des configurations Xiaomi/HyperOS, ne résolvent pas toujours `.local` : utilisez alors l'adresse IP courante affichée par l'assistant. L'IP attribuée par DHCP peut changer après un redémarrage.
 
 Sur Xiaomi 11T/HyperOS, l'option de réservation se trouve, lorsqu'elle existe, dans **Paramètres > Point d'accès mobile > Appareils connectés > Raspberry Pi > IP fixe/réservée**.
 
@@ -359,7 +372,7 @@ Pour une source SRT (ex. Larix Broadcaster sur Xiaomi), configurez côté OBS un
 
 `srt://:9001?mode=listener`
 
-Le flux arrive en **UDP**. Côté téléphone, Larix Broadcaster émet en mode caller vers `srt://<ADRESSE_DU_RASPBERRY>:9001?mode=caller`. Ne codez pas en dur une IP dynamique dans le téléphone : utilisez `dietpi.local` si l'application sait le résoudre, sinon l'IP courante indiquée par PrimumInitium. N'utilisez pas ce port s'il est déjà pris.
+Le flux arrive en **UDP**, port `9001`. Côté téléphone, Larix Broadcaster émet en mode caller vers l'une des deux adresses copiables du bilan : `srt://<nom-hôte>.local:9001?mode=caller` ou `srt://<IP-courante>:9001?mode=caller`. Si le nom ne fonctionne pas sur le téléphone, utilisez l'adresse avec les chiffres. Ne codez pas en dur une IP dynamique ; n'utilisez pas le port s'il est déjà pris.
 
 Le contrôle `obs-websocket` est différent : il reste en **TCP**, sur `127.0.0.1:4455`, et ne doit jamais être exposé sur le réseau.
 
@@ -432,7 +445,7 @@ Le script installe notamment :
 
 - Python et Tk, ainsi que les outils Wi-Fi (`wpasupplicant`, `iw`, `rfkill`, `ifupdown`) ;
 - Onboard, requis pour le clavier virtuel tactile ;
-- `ffmpeg` et `avahi-daemon` ;
+- `ffmpeg`, `avahi-daemon` et `avahi-utils` ;
 - les dépendances Python du dépôt ;
 - `mosquitto` et `mosquitto-clients` pour un courtier MQTT local ;
 - OBS Studio avec Source Navigateur via le paquet communautaire Pi-Apps ;
@@ -605,15 +618,16 @@ Points importants :
 - une URL distante reste une dépendance réseau supplémentaire : vérifiez toujours la confiance accordée au service tiers ;
 - une panne du service de chat ne doit pas empêcher le contrôle local OBS ni l'ingestion MQTT/Bluetooth.
 
-## Diffusion multi-plateforme : préparation seulement
+## Diffusion multi-plateforme
 
-Cette évolution **n'automatise pas** encore le multistream complet, Restream ni la gestion de clés de diffusion.
+Emissio enregistre les clés et serveurs dans un profil OBS local par plateforme. Chaque profil est créé depuis `Nomade direct fixe` pour conserver les mêmes réglages vidéo/audio. La sélection de plateforme fournit le profil à OBS sans ressaisie de la clé déjà enregistrée.
 
-La section `[streaming]` du TOML sert seulement à **préparer des destinations nommées** pour une évolution future, sans secrets. Pour l'instant :
+La section `[streaming]` du TOML reste une configuration de compatibilité, sans secrets. À retenir :
 
-- préparez vos profils et destinations dans `OBS-Preparation` ;
-- choisissez ensuite le bon profil OBS pour le direct ;
-- ne stockez ni clé de diffusion ni URL privée dans le dépôt.
+- le direct natif diffuse vers **une plateforme à la fois** ;
+- Restream.io permet plusieurs plateformes avec un seul flux sortant depuis le Raspberry ;
+- les clés sont en clair dans les profils OBS locaux protégés (droits `600`), jamais dans Git ou les journaux ;
+- ne partagez pas de sauvegarde de carte microSD contenant ces profils.
 
 ## Données locales
 

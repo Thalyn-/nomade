@@ -30,6 +30,7 @@ apt-get install -y \
   iputils-ping \
   onboard \
   avahi-daemon \
+  avahi-utils \
   ffmpeg \
   wget
 
@@ -58,6 +59,23 @@ if [[ ! -d "$VENV_DIR" ]]; then
 fi
 "$VENV_DIR/bin/pip" install --upgrade pip
 "$VENV_DIR/bin/pip" install -r "$REPO_DIR/requirements.txt"
+
+if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != "root" ]]; then
+  GROUPE_UTILISATEUR="$(id -gn "$SUDO_USER")"
+  HOME_UTILISATEUR="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+  if [[ "$DATA_DIR" == "/var/lib/nomade" && ! -L "$DATA_DIR" ]]; then
+    chown "$SUDO_USER:$GROUPE_UTILISATEUR" "$DATA_DIR"
+  fi
+  if [[ "$LOG_DIR" == "/var/log/nomade" && ! -L "$LOG_DIR" ]]; then
+    chown "$SUDO_USER:$GROUPE_UTILISATEUR" "$LOG_DIR"
+  fi
+  runuser -u "$SUDO_USER" -- env \
+    HOME="$HOME_UTILISATEUR" \
+    NOMADE_LANGUE="$(config_get general.language)" \
+    "$VENV_DIR/bin/python" "$SCRIPT_DIR/capteurs_mqtt.py" --initialiser-affichages
+else
+  "$VENV_DIR/bin/python" "$SCRIPT_DIR/capteurs_mqtt.py" --initialiser-affichages
+fi
 
 echo "Installation terminée."
 echo "Configuration locale : copiez config/nomade.local.toml.example vers config/nomade.local.toml si besoin."

@@ -13,16 +13,19 @@ SCRIPTS_DIR = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 from nomade_utils import charger_traductions
-from installer_scenes_obs import ajouter_modele
+from installer_scenes_obs import ajouter_modele, charger_modele, sauvegarder_collections
 from nomade_config import charger_configuration
 from primum_initium import (
     calculer_modifications,
     construire_rapport,
+    etape_suivante,
+    etat_bouton_obs,
     ecrire_configuration_locale,
     ecrire_configuration_wifi,
     decrire_modifications,
     essentiels_valides,
     construire_adresses_srt,
+    marquer_premier_lancement_obs,
     reconnecter_wifi,
     reseaux_detectes,
 )
@@ -52,7 +55,7 @@ class PrimumInitiumTests(unittest.TestCase):
             },
             "paquets": {nom: True for nom in (
                 "python3", "python3-venv", "python3-tk", "ffmpeg", "mosquitto",
-                "obs-studio", "avahi-daemon", "onboard",
+                "obs-studio", "avahi-daemon", "avahi-utils", "onboard",
             )},
             "venv": True,
             "obs_actif": True,
@@ -95,6 +98,45 @@ class PrimumInitiumTests(unittest.TestCase):
             ("srt://raspberry.local:9001?mode=caller", "srt://10.0.0.2:9001?mode=caller"),
         )
         self.assertEqual(construire_adresses_srt("", ""), ("", ""))
+        self.assertEqual(
+            construire_adresses_srt("raspberry", "2001:db8::1")[1],
+            "srt://[2001:db8::1]:9001?mode=caller",
+        )
+
+    def test_parcours_guide_choisit_la_premiere_etape_inachevee(self) -> None:
+        faits = dict(self.faits)
+        faits["internet"] = True
+        self.assertEqual(etape_suivante(faits, False), "tablet")
+        faits["internet"] = False
+        self.assertEqual(etape_suivante(faits, False), "network")
+        faits["internet"] = True
+        faits["obs_actif"] = False
+        self.assertEqual(etape_suivante(faits, True), "obs")
+        faits["obs_actif"] = True
+        faits["websocket"] = "absent"
+        self.assertEqual(etape_suivante(faits, True), "websocket")
+        faits["websocket"] = "joignable"
+        self.assertEqual(
+            etape_suivante(faits, True, configuration_a_jour=True, profils_configures=True),
+            "launch",
+        )
+
+    def test_bouton_obs_est_grise_si_obs_est_deja_lance(self) -> None:
+        self.assertEqual(etat_bouton_obs(True), "disabled")
+        self.assertEqual(etat_bouton_obs(False), "normal")
+
+    def test_premier_lancement_obs_est_marque_apres_sauvegarde(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            chemin = Path(dossier) / "global.ini"
+            chemin.write_text("[General]\nFirstRun=false\nTheme=Dark\n", encoding="utf-8")
+
+            sauvegarde = marquer_premier_lancement_obs(chemin)
+
+            self.assertIsNotNone(sauvegarde)
+            self.assertEqual(sauvegarde.read_text(encoding="utf-8"), "[General]\nFirstRun=false\nTheme=Dark\n")
+            self.assertEqual(chemin.read_text(encoding="utf-8"), "[General]\nFirstRun=true\nTheme=Dark\n")
+            self.assertEqual(chemin.stat().st_mode & 0o777, 0o600)
+            self.assertIsNone(marquer_premier_lancement_obs(chemin))
 
     def test_configuration_locale_est_sauvegardee_et_seules_cles_reseau_modifiees(self) -> None:
         with tempfile.TemporaryDirectory() as dossier:
@@ -182,7 +224,7 @@ class PrimumInitiumTests(unittest.TestCase):
     def test_suivant_est_bloque_tant_que_les_essentiels_manquent(self) -> None:
         essentiels = {
             "python3", "python3-venv", "python3-tk", "ffmpeg",
-            "mosquitto", "obs-studio", "avahi-daemon", "onboard",
+            "mosquitto", "obs-studio", "avahi-daemon", "avahi-utils", "onboard",
         }
         faits = {
             "internet": True,
@@ -231,7 +273,7 @@ class PrimumInitiumTests(unittest.TestCase):
             self.assertEqual(configuration["mqtt"]["network_interface"], "bnep1")
 
     def test_modele_obs_contient_les_noms_et_le_port_de_configuration(self) -> None:
-        modele = json.loads((ROOT / "examples/nomade-scenes.json").read_text(encoding="utf-8"))
+        modele = charger_modele(ROOT / "examples/nomade-scenes.json", Path("/tmp/nomade-data"))
         configuration = charger_configuration(repertoire_depot=ROOT)
         noms = {source["name"] for source in modele["sources"]}
 
@@ -241,6 +283,41 @@ class PrimumInitiumTests(unittest.TestCase):
         sources_srt = [source for source in modele["sources"] if source["kind"] == "ffmpeg_source"]
         self.assertTrue(sources_srt)
         self.assertTrue(all(source["settings"]["input"] == "srt://:9001?mode=listener" for source in sources_srt))
+        sources_texte = [source for source in modele["sources"] if source["kind"] == "text_ft2_source"]
+        self.assertTrue(sources_texte)
+        self.assertTrue(all("/tmp/nomade-data/overlays/" in source["settings"]["text_file"] for source in sources_texte))
+        self.assertIn("Guide Nomade", modele["scenes"])
+
+    def test_import_modele_place_la_source_guide_dans_sa_scene(self) -> None:
+        class ClientFactice:
+            def __init__(self) -> None:
+                self.scenes = []
+                self.inputs = []
+
+            def get_scene_list(self):
+                return type("Reponse", (), {"scenes": self.scenes})()
+
+            def get_input_list(self):
+                return type("Reponse", (), {"inputs": self.inputs})()
+
+            def send(self, requete, donnees):
+                if requete == "CreateScene":
+                    self.scenes.append({"sceneName": donnees["sceneName"]})
+                elif requete == "CreateInput":
+                    self.inputs.append(donnees)
+
+        client = ClientFactice()
+        modele = {
+            "scenes": ["Scene principale", "Guide Nomade"],
+            "sources": [{
+                "name": "Guide Nomade", "scene": "Guide Nomade",
+                "kind": "text_ft2_source", "settings": {}, "enabled": True,
+            }],
+        }
+
+        ajouter_modele(client, modele)
+
+        self.assertEqual(client.inputs[0]["sceneName"], "Guide Nomade")
 
     def test_import_modele_conserve_les_sources_deja_presentes(self) -> None:
         class ClientFactice:
@@ -273,6 +350,21 @@ class PrimumInitiumTests(unittest.TestCase):
         self.assertEqual((ajoutes, ignores), (1, 1))
         self.assertEqual([appel[0] for appel in client.creations], ["CreateScene", "CreateInput"])
         self.assertEqual(client.sources[0]["inputName"], "Selfie")
+
+    def test_sauvegarde_des_collections_est_creee_avant_import(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            collection = Path(dossier) / "collection.json"
+            collection.write_text('{"name":"Ma collection"}', encoding="utf-8")
+
+            sauvegardes = sauvegarder_collections(Path(dossier))
+
+            self.assertEqual(len(sauvegardes), 1)
+            self.assertIn(".bak", sauvegardes[0].name)
+            self.assertEqual(sauvegardes[0].read_text(encoding="utf-8"), '{"name":"Ma collection"}')
+
+    def test_sauvegarde_des_collections_accepte_un_dossier_vide(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            self.assertEqual(sauvegarder_collections(Path(dossier)), [])
 
 
 if __name__ == "__main__":

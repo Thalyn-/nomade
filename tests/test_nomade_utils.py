@@ -11,7 +11,14 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from nomade_utils import charger_traductions, ecrire_json_atomique, est_hote_obs_local, valider_charge_capteurs
+from nomade_utils import (
+    charger_traductions,
+    ecrire_affichages_capteurs,
+    ecrire_json_atomique,
+    est_hote_obs_local,
+    textes_affichage_capteurs,
+    valider_charge_capteurs,
+)
 
 
 class NomadeUtilsTests(unittest.TestCase):
@@ -54,6 +61,32 @@ class NomadeUtilsTests(unittest.TestCase):
                 {"position": {"latitude": 1}, "vitesse_kmh": 18.4},
             )
 
+    def test_affichages_capteurs_sont_traduits_et_mis_a_jour_sans_controle(self) -> None:
+        locales = Path(__file__).resolve().parents[1] / "locales"
+        textes = charger_traductions("fr", locales)
+        valeurs = textes_affichage_capteurs(
+            {
+                "vitesse_kmh": "18\nalerte",
+                "pulsations": 72,
+                "position": {"latitude": 48.1, "longitude": 2.2},
+                "meteo": {"temperature_c": 19, "description": "Soleil"},
+            },
+            textes,
+        )
+        self.assertEqual(valeurs["vitesse.txt"], "Vitesse : 18alerte km/h")
+        self.assertEqual(valeurs["pulsations.txt"], "Pulsations : 72 bpm")
+        self.assertIn("48.1, 2.2", valeurs["carte.txt"])
+
+        with tempfile.TemporaryDirectory() as dossier:
+            self.assertEqual(textes_affichage_capteurs({}, textes)["pulsations.txt"], "Pulsations : 70 bpm (exemple)")
+            ecrire_affichages_capteurs(Path(dossier), {}, textes)
+            fichier = Path(dossier) / "overlays" / "vitesse.txt"
+            self.assertEqual(fichier.read_text(encoding="utf-8").strip(), "Vitesse : 0 km/h (exemple)")
+            self.assertEqual(fichier.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(fichier.parent.stat().st_mode & 0o777, 0o700)
+            fichier.write_text("personnalisé\n", encoding="utf-8")
+            ecrire_affichages_capteurs(Path(dossier), {}, textes, seulement_absents=True)
+            self.assertEqual(fichier.read_text(encoding="utf-8"), "personnalisé\n")
 
 if __name__ == "__main__":
     unittest.main()

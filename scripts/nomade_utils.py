@@ -83,4 +83,67 @@ def ecrire_json_atomique(chemin: Path, donnees: dict[str, Any]) -> None:
             os.unlink(chemin_temporaire)
         except FileNotFoundError:
             pass
-        raise
+
+
+def _texte_sur_une_ligne(valeur: Any, remplacement: str) -> str:
+    if valeur is None or isinstance(valeur, (dict, list)):
+        return remplacement
+    texte = "".join(caractere for caractere in str(valeur) if caractere >= " " and caractere != "\x7f")
+    return texte.replace("\n", " ").strip()[:100] or remplacement
+
+
+def textes_affichage_capteurs(donnees: dict[str, Any], textes: dict[str, str]) -> dict[str, str]:
+    if not donnees:
+        return {
+            "vitesse.txt": textes["overlay_example_speed"],
+            "pulsations.txt": textes["overlay_example_heart_rate"],
+            "carte.txt": textes["overlay_example_position"],
+            "meteo.txt": textes["overlay_example_weather"],
+            "guide.txt": textes["overlay_guide"],
+        }
+    indisponible = textes["overlay_waiting"]
+    position = donnees.get("position", {})
+    meteo = donnees.get("meteo", {})
+    latitude = _texte_sur_une_ligne(position.get("latitude"), indisponible)
+    longitude = _texte_sur_une_ligne(position.get("longitude"), indisponible)
+    temperature = _texte_sur_une_ligne(meteo.get("temperature_c"), "")
+    description = _texte_sur_une_ligne(meteo.get("description"), "")
+    temps = " ".join(partie for partie in (temperature, description) if partie) or indisponible
+    return {
+        "vitesse.txt": textes["overlay_speed"].format(
+            value=_texte_sur_une_ligne(donnees.get("vitesse_kmh"), indisponible)
+        ),
+        "pulsations.txt": textes["overlay_heart_rate"].format(
+            value=_texte_sur_une_ligne(donnees.get("pulsations"), indisponible)
+        ),
+        "carte.txt": textes["overlay_position"].format(latitude=latitude, longitude=longitude),
+        "meteo.txt": textes["overlay_weather"].format(value=temps),
+        "guide.txt": textes["overlay_guide"],
+    }
+
+
+def ecrire_affichages_capteurs(
+    repertoire_donnees: Path,
+    donnees: dict[str, Any],
+    textes: dict[str, str],
+    *,
+    seulement_absents: bool = False,
+) -> None:
+    repertoire = Path(repertoire_donnees) / "overlays"
+    repertoire.mkdir(parents=True, exist_ok=True)
+    os.chmod(repertoire, 0o700)
+    for nom, contenu in textes_affichage_capteurs(donnees, textes).items():
+        destination = repertoire / nom
+        if seulement_absents and destination.exists():
+            continue
+        descripteur, temporaire = tempfile.mkstemp(prefix=f".{nom}.", dir=repertoire)
+        try:
+            with os.fdopen(descripteur, "w", encoding="utf-8") as fichier:
+                fichier.write(contenu + "\n")
+                fichier.flush()
+                os.fsync(fichier.fileno())
+            os.chmod(temporaire, 0o600)
+            os.replace(temporaire, destination)
+        except Exception:
+            Path(temporaire).unlink(missing_ok=True)
+            raise
