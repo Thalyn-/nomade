@@ -52,6 +52,7 @@ def _commande(*arguments: str) -> str:
 def reconnecter_wifi(executer: Any = subprocess.run) -> list[tuple[str, int, str]]:
     """Exécute une séquence de reconnexion, injectable pour les tests."""
     etapes = [
+        ("systemctl", "restart", "networking"),
         ("rfkill", "unblock", "wifi"),
         ("iw", "dev", "wlan0", "scan"),
         ("wpa_cli", "-i", "wlan0", "reconfigure"),
@@ -64,18 +65,20 @@ def reconnecter_wifi(executer: Any = subprocess.run) -> list[tuple[str, int, str
             resultat = executer(commande, check=False, capture_output=True, text=True, timeout=20)
             sortie = (getattr(resultat, "stdout", "") or getattr(resultat, "stderr", "") or "").strip()
             code = resultat.returncode
+        except FileNotFoundError:
+            code, sortie = 2, "outil_absent"
         except (OSError, subprocess.TimeoutExpired) as erreur:
             code, sortie = 1, str(erreur)
         resultats.append((commande[0], code, sortie))
-    if resultats[-1][1] != 0:
-        commande = ("systemctl", "restart", "networking")
-        try:
-            resultat = executer(commande, check=False, capture_output=True, text=True, timeout=30)
-            sortie = (getattr(resultat, "stdout", "") or getattr(resultat, "stderr", "") or "").strip()
-            resultats.append((commande[0], resultat.returncode, sortie))
-        except (OSError, subprocess.TimeoutExpired) as erreur:
-            resultats.append((commande[0], 1, str(erreur)))
     return resultats
+
+
+def construire_adresses_srt(nom_local: str, adresse_ip: str, port: int = 9001) -> tuple[str, str]:
+    """Construit les deux adresses Larix sans dépendre de la résolution mDNS du téléphone."""
+    hote = nom_local.strip().removesuffix(".local")
+    adresse = f"srt://{hote}.local:{port}?mode=caller" if hote else ""
+    adresse_ip_srt = f"srt://{adresse_ip.strip()}:{port}?mode=caller" if adresse_ip.strip() else ""
+    return adresse, adresse_ip_srt
 
 
 def ecrire_configuration_wifi(
@@ -283,12 +286,15 @@ def construire_rapport(faits: dict[str, Any], textes: dict[str, str]) -> Rapport
         "check_audio_ok" if faits["audio"] else "check_audio_missing",
         devices=", ".join(faits["audio"].splitlines()),
     )
+    srt_nom, srt_ip = construire_adresses_srt(faits["nom_local"], faits["ip"])
     reseau = {
         "ip": faits["ip"] or textes["unknown"],
         "passerelle": faits["passerelle"] or textes["unknown"],
         "nom_local": faits["nom_local"] if faits["avahi_actif"] else textes["mdns_unavailable"].format(host=faits["nom_local"]),
         "telephone": _trouver_voisin(faits["voisins"], faits["passerelle"]) or textes["unknown"],
-        "srt": f"srt://{faits['nom_local'] if faits['avahi_actif'] else faits['ip'] or 'ADRESSE_DU_RASPBERRY'}:9001?mode=caller",
+        "srt": srt_nom if faits["avahi_actif"] else srt_ip or srt_nom,
+        "srt_nom": srt_nom or textes["unknown"],
+        "srt_ip": srt_ip or textes["unknown"],
         "interface": (
             textes["network_wifi"].format(interface=faits["interface_reseau"])
             if faits.get("interface_reseau", "").startswith("wl")
@@ -464,6 +470,29 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
     reseau_var = tk.StringVar()
     reseau_label = ttk.Label(cadre, textvariable=reseau_var, wraplength=940, font=("TkDefaultFont", 12))
     reseau_label.pack(anchor="w", pady=6)
+    srt_nom_var = tk.StringVar(value=rapport.reseau.get("srt_nom", ""))
+    srt_ip_var = tk.StringVar(value=rapport.reseau.get("srt_ip", ""))
+    adresses_srt = ttk.Frame(cadre)
+    adresses_srt.pack(fill="x", pady=2)
+    ttk.Label(adresses_srt, text=textes["srt_name_label"]).grid(row=0, column=0, sticky="w")
+    entree_srt_nom = ttk.Entry(adresses_srt, textvariable=srt_nom_var, state="readonly", font=("TkDefaultFont", 11))
+    entree_srt_nom.grid(row=1, column=0, sticky="ew", padx=(0, 4))
+    ttk.Button(
+        adresses_srt, text=textes["srt_copy"],
+        command=lambda: copier_adresse(srt_nom_var.get()),
+    ).grid(row=1, column=1, padx=(0, 12))
+    ttk.Label(adresses_srt, text=textes["srt_ip_label"]).grid(row=0, column=2, sticky="w")
+    entree_srt_ip = ttk.Entry(adresses_srt, textvariable=srt_ip_var, state="readonly", font=("TkDefaultFont", 11))
+    entree_srt_ip.grid(row=1, column=2, sticky="ew", padx=(0, 4))
+    ttk.Button(
+        adresses_srt, text=textes["srt_copy"],
+        command=lambda: copier_adresse(srt_ip_var.get()),
+    ).grid(row=1, column=3)
+    adresses_srt.columnconfigure(0, weight=1)
+    adresses_srt.columnconfigure(2, weight=1)
+    ttk.Label(cadre, text=textes["srt_phone_hint"], wraplength=940).pack(anchor="w", pady=(0, 4))
+    derniere_verification = tk.StringVar()
+    ttk.Label(cadre, textvariable=derniere_verification).pack(anchor="w")
     banniere = ttk.Label(cadre, text="", wraplength=940, font=("TkDefaultFont", 14, "bold"))
     banniere.pack(anchor="w", pady=4)
     onglets = ttk.Notebook(cadre)
@@ -531,6 +560,13 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
 
     def confirmer(message: str) -> bool:
         return messagebox.askyesno(textes["confirm_title"], message, parent=fenetre)
+
+    def copier_adresse(adresse: str) -> None:
+        if not adresse or adresse == textes["unknown"]:
+            return
+        fenetre.clipboard_clear()
+        fenetre.clipboard_append(adresse)
+        statut_actions.set(textes["srt_copied"])
 
     def lancer_administrateur(*commande: str) -> bool:
         if not shutil.which("pkexec"):
@@ -893,6 +929,13 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
             obs_demarrage = False
         rapport_courant = construire_rapport(nouveaux, textes)
         reseau_var.set(textes["network_info"].format(**rapport_courant.reseau))
+        srt_nom_var.set(rapport_courant.reseau["srt_nom"])
+        srt_ip_var.set(rapport_courant.reseau["srt_ip"])
+        derniere_verification.set(
+            textes["diagnostic_last_updated"].format(
+                time=datetime.now().astimezone().strftime("%d/%m/%Y %H:%M:%S")
+            )
+        )
         if nouveaux.get("internet"):
             banniere.configure(text=textes["network_connected"])
         else:
@@ -998,17 +1041,24 @@ def main() -> int:
         print(textes["wifi_written"])
         return 0
     if args.reconnect:
-        etapes = (
-            "wifi_step_unblock",
-            "wifi_step_scan",
-            "wifi_step_reconfigure",
-            "wifi_step_down",
-            "wifi_step_up",
-            "wifi_step_networking",
-        )
-        for index, (_commande_nom, code, sortie) in enumerate(reconnecter_wifi()):
-            etat = textes["wifi_step_ok"] if code == 0 else textes["wifi_step_failed"]
-            print(textes["wifi_step_result"].format(step=textes[etapes[index]], status=etat, output=sortie))
+        etapes = {
+            "systemctl": "wifi_step_networking",
+            "rfkill": "wifi_step_unblock",
+            "iw": "wifi_step_scan",
+            "wpa_cli": "wifi_step_reconfigure",
+            "ifdown": "wifi_step_down",
+            "ifup": "wifi_step_up",
+        }
+        for _commande_nom, code, sortie in reconnecter_wifi():
+            etat = (
+                textes["wifi_step_missing"] if code == 2
+                else textes["wifi_step_ok"] if code == 0
+                else textes["wifi_step_failed"]
+            )
+            detail = "" if sortie == "outil_absent" else sortie
+            print(textes["wifi_step_result"].format(
+                step=textes[etapes[_commande_nom]], status=etat, output=detail
+            ))
         return 0
     try:
         faits = collecter_faits()

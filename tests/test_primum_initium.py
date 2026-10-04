@@ -22,6 +22,7 @@ from primum_initium import (
     ecrire_configuration_wifi,
     decrire_modifications,
     essentiels_valides,
+    construire_adresses_srt,
     reconnecter_wifi,
     reseaux_detectes,
 )
@@ -84,7 +85,16 @@ class PrimumInitiumTests(unittest.TestCase):
             ligne.message for ligne in rapport.verifications if ligne.cle == "capture_usb"
         ))
         self.assertEqual(rapport.reseau["srt"], "srt://dietpi.local:9001?mode=caller")
+        self.assertEqual(rapport.reseau["srt_nom"], "srt://dietpi.local:9001?mode=caller")
+        self.assertEqual(rapport.reseau["srt_ip"], "srt://10.0.0.2:9001?mode=caller")
         self.assertEqual(rapport.reseau["telephone"], "10.0.0.5")
+
+    def test_construit_les_deux_adresses_srt_sans_nom_dhote_en_dur(self) -> None:
+        self.assertEqual(
+            construire_adresses_srt("raspberry.local", "10.0.0.2"),
+            ("srt://raspberry.local:9001?mode=caller", "srt://10.0.0.2:9001?mode=caller"),
+        )
+        self.assertEqual(construire_adresses_srt("", ""), ("", ""))
 
     def test_configuration_locale_est_sauvegardee_et_seules_cles_reseau_modifiees(self) -> None:
         with tempfile.TemporaryDirectory() as dossier:
@@ -138,7 +148,7 @@ class PrimumInitiumTests(unittest.TestCase):
             ecrire_configuration_wifi(chemin, "reseau", cle)
             self.assertIn(f"psk={cle}", chemin.read_text(encoding="utf-8"))
 
-    def test_reconnexion_wifi_affiche_chaque_commande_et_tente_le_dernier_recours(self) -> None:
+    def test_reconnexion_wifi_relance_le_reseau_en_premier(self) -> None:
         appels = []
 
         def executer(commande, **_options):
@@ -149,7 +159,21 @@ class PrimumInitiumTests(unittest.TestCase):
         resultat = reconnecter_wifi(executer)
 
         self.assertEqual(len(resultat), 6)
-        self.assertEqual(appels[-1], ("systemctl", "restart", "networking"))
+        self.assertEqual(appels[0], ("systemctl", "restart", "networking"))
+
+    def test_reconnexion_wifi_ignore_rfkill_absent_sans_bloquer(self) -> None:
+        appels = []
+
+        def executer(commande, **_options):
+            appels.append(commande)
+            if commande[0] == "rfkill":
+                raise FileNotFoundError("rfkill")
+            return type("Resultat", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+        resultat = reconnecter_wifi(executer)
+
+        self.assertEqual(resultat[1], ("rfkill", 2, "outil_absent"))
+        self.assertEqual(len(appels), 6)
 
     def test_reseaux_wifi_sont_extraits_sans_doublons(self) -> None:
         sortie = 'ESSID:"Reseau A"\nESSID:"Reseau B"\nESSID:"Reseau A"'
