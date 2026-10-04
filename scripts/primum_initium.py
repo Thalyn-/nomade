@@ -22,7 +22,22 @@ REPO_DIR = SCRIPT_DIR.parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+from installer_scenes_obs import (
+    formater_compte_rendu,
+    formater_erreur_import,
+    importer_depuis_depot,
+    sauvegarder_collections,
+)
 from nomade_config import charger_configuration
+from nomade_obs import (
+    INJOIGNABLE,
+    INTERNE,
+    MOT_DE_PASSE,
+    ConnexionOBS,
+    classer_erreur,
+    creer_client,
+    fermer_client,
+)
 from nomade_secrets import enregistrer_secret_obs, charger_secret_obs
 from nomade_utils import charger_traductions
 
@@ -43,7 +58,7 @@ class Verification:
 @dataclass(frozen=True)
 class Rapport:
     verifications: list[Verification]
-    reseau: dict[str, str]
+    reseau: dict[str, Any]
 
 
 def _commande(*arguments: str) -> str:
@@ -88,6 +103,46 @@ def construire_adresses_srt(nom_local: str, adresse_ip: str, port: int = 9001) -
         ip = f"[{ip}]"
     adresse_ip_srt = f"srt://{ip}:{port}?mode=caller" if ip else ""
     return adresse, adresse_ip_srt
+
+
+PORT_SRT_PAR_DEFAUT = 9001
+
+
+def sources_srt_configurees(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """Liste les sources SRT de la configuration avec leur port d'écoute."""
+    return [
+        {
+            "nom": source["obs_source_name"],
+            "label": source.get("label", source["obs_source_name"]),
+            "port": source.get("srt_port") or PORT_SRT_PAR_DEFAUT,
+        }
+        for source in config.get("video_sources", [])
+        if source.get("type") == "srt"
+    ]
+
+
+def ports_en_ecoute(sortie_ss: str, ports: list[int]) -> list[int]:
+    """Retourne ceux des ports demandés qui apparaissent en écoute UDP."""
+    return [port for port in ports if re.search(rf"(?<!\d){port}(?!\d)", sortie_ss)]
+
+
+def port_depuis_adresse_srt(adresse: str) -> int | None:
+    correspondance = re.match(r"srt://[^:/?]*:(\d+)", adresse.strip())
+    return int(correspondance.group(1)) if correspondance else None
+
+
+def ecarts_ports_srt(sources: list[dict[str, Any]], adresses_obs: dict[str, str]) -> list[str]:
+    """Signale les ports en double et les écarts entre `srt_port` et l'URL OBS."""
+    ecarts = []
+    vus: dict[int, str] = {}
+    for source in sources:
+        if source["port"] in vus:
+            ecarts.append(f"{source['nom']} / {vus[source['port']]} : {source['port']}")
+        vus.setdefault(source["port"], source["nom"])
+        reel = port_depuis_adresse_srt(adresses_obs.get(source["nom"], ""))
+        if reel is not None and reel != source["port"]:
+            ecarts.append(f"{source['nom']} : {source['port']} / {reel}")
+    return ecarts
 
 
 def etape_suivante(
@@ -232,8 +287,11 @@ def ecrire_configuration_wifi(
     return sauvegarde
 
 
-def collecter_faits(repertoire: Path = REPO_DIR) -> dict[str, Any]:
-    """Collecte les observations système sans modifier l'installation."""
+def collecter_faits(repertoire: Path = REPO_DIR, connexion: ConnexionOBS | None = None) -> dict[str, Any]:
+    """Collecte les observations système sans modifier l'installation.
+
+    Une `connexion` persistante évite d'ouvrir puis fermer le WebSocket à chaque cycle.
+    """
     config = charger_configuration(repertoire_depot=repertoire)
     paquets = {
         nom: "install ok installed" in _commande("dpkg-query", "-W", "-f=${Status}", nom)
@@ -250,16 +308,14 @@ def collecter_faits(repertoire: Path = REPO_DIR) -> dict[str, Any]:
     avahi_resolu: bool | None = None if avahi_actif else False
     if avahi_actif and shutil.which("avahi-resolve-host-name"):
         avahi_resolu = bool(_commande("avahi-resolve-host-name", f"{nom_hote}.local"))
+    websocket_erreur = ""
+    adresses_srt_obs: dict[str, str] = {}
+    propre = connexion is None
+    if connexion is None:
+        connexion = ConnexionOBS(config["obs"]["host"], config["obs"]["port"])
     if obs_actif:
         try:
-            from obsws_python import ReqClient
-
-            client = ReqClient(
-                "127.0.0.1",
-                4455,
-                os.environ.get("OBS_MDP", ""),
-                timeout=3,
-            )
+            client = connexion.obtenir()
             websocket = "joignable"
             scenes = [scene["sceneName"] for scene in client.get_scene_list().scenes]
             entrees = client.get_input_list().inputs
@@ -274,6 +330,10 @@ def collecter_faits(repertoire: Path = REPO_DIR) -> dict[str, Any]:
             for source in config["video_sources"]:
                 if source["type"] == "srt" and source["obs_source_name"] in sources:
                     try:
+                        parametres = client.get_input_settings(input_name=source["obs_source_name"])
+                        adresses_srt_obs[source["obs_source_name"]] = str(
+                            parametres.input_settings.get("input", "")
+                        )
                         etat_media = client.get_media_input_status(
                             input_name=source["obs_source_name"]
                         ).media_state
@@ -282,7 +342,14 @@ def collecter_faits(repertoire: Path = REPO_DIR) -> dict[str, Any]:
                         pass
             reception_srt = any(etats_srt) if etats_srt else None
         except Exception as exc:
-            websocket = "mot_de_passe" if "auth" in str(exc).lower() else "indisponible"
+            connexion.invalider()
+            categorie, websocket_erreur = classer_erreur(exc)
+            websocket = {MOT_DE_PASSE: "mot_de_passe", INJOIGNABLE: "indisponible"}.get(categorie, "erreur")
+            scenes, sources, reception_srt = [], [], None
+    else:
+        connexion.invalider()
+    if propre:
+        connexion.fermer()
 
     ip = _commande("hostname", "-I").split()
     route = _commande("ip", "-j", "route", "show", "default")
@@ -302,7 +369,9 @@ def collecter_faits(repertoire: Path = REPO_DIR) -> dict[str, Any]:
     internet = bool(_commande("ping", "-c", "1", "-W", "2", "deb.debian.org"))
     voisins = _commande("ip", "neigh")
     video = sorted(str(path) for path in Path("/dev").glob("video*"))
-    ecoute_srt = bool(re.search(r"(?<!\d)9001(?!\d)", _commande("ss", "-lun")))
+    sources_srt = sources_srt_configurees(config)
+    ports_srt = sorted({source["port"] for source in sources_srt})
+    ports_ecoute = ports_en_ecoute(_commande("ss", "-lun"), ports_srt)
     audio = _commande("pactl", "list", "short", "sources")
     bluetooth = _commande("bluetoothctl", "show")
     interfaces_bluetooth = sorted(Path("/sys/class/net").glob("bnep*"))
@@ -325,7 +394,12 @@ def collecter_faits(repertoire: Path = REPO_DIR) -> dict[str, Any]:
         "avahi_resolu": avahi_resolu,
         "voisins": voisins,
         "video": video,
-        "ecoute_srt": ecoute_srt,
+        "websocket_erreur": websocket_erreur,
+        "sources_srt": sources_srt,
+        "ports_srt": ports_srt,
+        "ports_srt_ecoute": ports_ecoute,
+        "ecarts_srt": ecarts_ports_srt(sources_srt, adresses_srt_obs),
+        "ecoute_srt": bool(ports_ecoute),
         "reception_srt": reception_srt,
         "audio": audio,
         "bluetooth": bluetooth,
@@ -351,8 +425,12 @@ def construire_rapport(faits: dict[str, Any], textes: dict[str, str]) -> Rapport
     if websocket == "joignable":
         ajouter("websocket", "ok", "check_websocket_ok")
     else:
-        cle = "check_websocket_password" if websocket == "mot_de_passe" else "check_websocket_missing"
-        ajouter("websocket", "erreur", cle)
+        cle = {
+            "mot_de_passe": "check_websocket_password",
+            "indisponible": "check_websocket_unreachable",
+            "erreur": "check_websocket_internal",
+        }.get(websocket, "check_websocket_missing")
+        ajouter("websocket", "erreur", cle, error=faits.get("websocket_erreur", ""))
 
     config_obs = faits["config"]["obs"]
     attendues = [
@@ -378,7 +456,18 @@ def construire_rapport(faits: dict[str, Any], textes: dict[str, str]) -> Rapport
         "check_video_ok" if faits["video"] else "check_video_missing",
         devices=", ".join(faits["video"]),
     )
-    ajouter("srt", "ok" if faits["ecoute_srt"] else "alerte", "check_srt_listening" if faits["ecoute_srt"] else "check_srt_missing")
+    ports_srt = ", ".join(str(port) for port in faits.get("ports_srt", [PORT_SRT_PAR_DEFAUT]))
+    ajouter(
+        "srt", "ok" if faits["ecoute_srt"] else "alerte",
+        "check_srt_listening" if faits["ecoute_srt"] else "check_srt_missing",
+        ports=", ".join(str(port) for port in faits.get("ports_srt_ecoute", [])) or ports_srt,
+        configured=ports_srt,
+    )
+    ecarts = faits.get("ecarts_srt", [])
+    if ecarts:
+        ajouter("srt_ports", "alerte", "check_srt_ports_mismatch", details="; ".join(ecarts))
+    else:
+        ajouter("srt_ports", "ok", "check_srt_ports_ok", ports=ports_srt)
     reception = faits["reception_srt"]
     if reception is True:
         ajouter("srt_reception", "ok", "check_srt_received")
@@ -391,8 +480,19 @@ def construire_rapport(faits: dict[str, Any], textes: dict[str, str]) -> Rapport
         "check_audio_ok" if faits["audio"] else "check_audio_missing",
         devices=", ".join(faits["audio"].splitlines()),
     )
-    srt_nom, srt_ip = construire_adresses_srt(faits["nom_local"], faits["ip"])
+    sources_srt = faits.get("sources_srt") or [
+        {"nom": "", "label": "", "port": PORT_SRT_PAR_DEFAUT}
+    ]
+    adresses_par_source = []
+    for source in sources_srt:
+        adresse_nom, adresse_ip = construire_adresses_srt(faits["nom_local"], faits["ip"], source["port"])
+        adresses_par_source.append({
+            "label": source["label"], "port": source["port"],
+            "nom": adresse_nom or textes["unknown"], "ip": adresse_ip or textes["unknown"],
+        })
+    srt_nom, srt_ip = construire_adresses_srt(faits["nom_local"], faits["ip"], sources_srt[0]["port"])
     reseau = {
+        "srt_adresses": adresses_par_source,
         "ip": faits["ip"] or textes["unknown"],
         "passerelle": faits["passerelle"] or textes["unknown"],
         "nom_local": faits["nom_local"] if faits["avahi_actif"] else textes["mdns_unavailable"].format(host=faits["nom_local"]),
@@ -564,6 +664,8 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
     import tkinter as tk
     from tkinter import messagebox, ttk
 
+    config_obs = charger_configuration(repertoire_depot=repertoire)["obs"]
+    connexion_obs = ConnexionOBS(config_obs["host"], config_obs["port"])
     fenetre = tk.Tk()
     fenetre.title(textes["title"])
     fenetre.geometry("1024x600")
@@ -593,26 +695,37 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
     reseau_var = tk.StringVar()
     reseau_label = ttk.Label(cadre, textvariable=reseau_var, wraplength=940, font=("TkDefaultFont", 12))
     reseau_label.pack(anchor="w", pady=6)
-    srt_nom_var = tk.StringVar(value=rapport.reseau.get("srt_nom", ""))
-    srt_ip_var = tk.StringVar(value=rapport.reseau.get("srt_ip", ""))
     adresses_srt = ttk.Frame(cadre)
     adresses_srt.pack(fill="x", pady=2)
-    ttk.Label(adresses_srt, text=textes["srt_name_label"]).grid(row=0, column=0, sticky="w")
-    entree_srt_nom = ttk.Entry(adresses_srt, textvariable=srt_nom_var, state="readonly", font=("TkDefaultFont", 11))
-    entree_srt_nom.grid(row=1, column=0, sticky="ew", padx=(0, 4))
-    ttk.Button(
-        adresses_srt, text=textes["srt_copy"],
-        command=lambda: copier_adresse(srt_nom_var.get()),
-    ).grid(row=1, column=1, padx=(0, 12))
-    ttk.Label(adresses_srt, text=textes["srt_ip_label"]).grid(row=0, column=2, sticky="w")
-    entree_srt_ip = ttk.Entry(adresses_srt, textvariable=srt_ip_var, state="readonly", font=("TkDefaultFont", 11))
-    entree_srt_ip.grid(row=1, column=2, sticky="ew", padx=(0, 4))
-    ttk.Button(
-        adresses_srt, text=textes["srt_copy"],
-        command=lambda: copier_adresse(srt_ip_var.get()),
-    ).grid(row=1, column=3)
     adresses_srt.columnconfigure(0, weight=1)
     adresses_srt.columnconfigure(2, weight=1)
+    adresses_affichees: list[Any] = []
+
+    def afficher_adresses_srt(liste: list[dict[str, Any]]) -> None:
+        """Affiche une adresse SRT par source (nom `.local` et adresse IP), avec « Copier »."""
+        if liste == adresses_affichees:
+            return
+        adresses_affichees[:] = liste
+        for enfant in adresses_srt.winfo_children():
+            enfant.destroy()
+        for rang, adresse in enumerate(liste):
+            ttk.Label(adresses_srt, text=textes["srt_source_name_label"].format(
+                label=adresse["label"], port=adresse["port"]
+            )).grid(row=2 * rang, column=0, sticky="w")
+            ttk.Label(adresses_srt, text=textes["srt_source_ip_label"].format(
+                label=adresse["label"], port=adresse["port"]
+            )).grid(row=2 * rang, column=2, sticky="w")
+            for colonne, cle in ((0, "nom"), (2, "ip")):
+                variable = tk.StringVar(value=adresse[cle])
+                ttk.Entry(
+                    adresses_srt, textvariable=variable, state="readonly", font=("TkDefaultFont", 11)
+                ).grid(row=2 * rang + 1, column=colonne, sticky="ew", padx=(0, 4))
+                ttk.Button(
+                    adresses_srt, text=textes["srt_copy"],
+                    command=lambda v=variable: copier_adresse(v.get()),
+                ).grid(row=2 * rang + 1, column=colonne + 1, padx=(0, 12))
+
+    afficher_adresses_srt(rapport.reseau.get("srt_adresses", []))
     aide_srt = ttk.Label(cadre, text=textes["srt_phone_hint"], wraplength=940)
     aide_srt.pack(anchor="w", pady=(0, 4))
     derniere_verification = tk.StringVar()
@@ -644,7 +757,7 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
         lignes_par_onglet[cle] = lignes
     groupes = {
         "essential": {"venv", "obs_actif", "websocket", "scenes_sources", "source_navigateur"},
-        "recommended": {"capture_usb", "srt", "srt_reception", "audio", "mdns"},
+        "recommended": {"capture_usb", "srt", "srt_ports", "srt_reception", "audio", "mdns"},
         "optional": {"bluetooth", "bnep_mqtt"},
     }
     etiquette_lignes: dict[str, Any] = {}
@@ -798,29 +911,27 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
     def importer_modele() -> None:
         if not confirmer(textes["guided_scene_confirm"]):
             return
+        client = None
         try:
-            from obsws_python import ReqClient
-            from installer_scenes_obs import (
-                ajouter_modele,
-                charger_modele,
-                sauvegarder_collections,
+            client = creer_client(
+                faits_courants["config"]["obs"]["host"], faits_courants["config"]["obs"]["port"]
             )
-
-            client = ReqClient("127.0.0.1", 4455, os.environ.get("OBS_MDP", ""), timeout=3)
             scene_dir = repertoire_config_utilisateur() / "obs-studio" / "basic" / "scenes"
             sauvegardes = sauvegarder_collections(scene_dir)
-            modele = charger_modele(
-                repertoire / "examples" / "nomade-scenes.json",
-                Path(faits_courants["config"]["paths"]["data_dir"]),
-            )
-            ajoutes, ignores = ajouter_modele(client, modele)
+            compte_rendu = importer_depuis_depot(client, repertoire, faits_courants["config"], textes)
             statut_actions.set(textes["guided_scene_done"].format(
-                added=ajoutes, skipped=ignores,
+                added=len(compte_rendu.creees), skipped=len(compte_rendu.presentes),
                 backups=", ".join(map(str, sauvegardes)) or textes["scene_backup_none"]
             ))
+            if compte_rendu.ignorees or compte_rendu.avertissements:
+                messagebox.showwarning(
+                    textes["title"], formater_compte_rendu(compte_rendu, textes), parent=fenetre
+                )
             actualiser()
         except Exception as erreur:
-            messagebox.showerror(textes["title"], textes["scene_error"].format(error=erreur), parent=fenetre)
+            messagebox.showerror(textes["title"], formater_erreur_import(erreur, textes), parent=fenetre)
+        finally:
+            fermer_client(client)
 
     def corriger_wifi() -> None:
         services = _commande("systemctl", "list-units", "--all", "--no-legend")
@@ -874,7 +985,29 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
         statut_actions.set(
             textes["obs_password_saved"].format(backup=sauvegarde or textes["new_file"])
         )
+        connexion_obs.reinitialiser()
+        tester_connexion_obs()
         actualiser()
+
+    def tester_connexion_obs() -> None:
+        obs_config = faits_courants.get("config", {}).get("obs", {})
+        client = None
+        try:
+            client = creer_client(obs_config.get("host", "127.0.0.1"), obs_config.get("port", 4455))
+            version = client.get_version().obs_version
+            statut_actions.set(textes["obs_password_test_ok"].format(version=version))
+        except Exception as erreur:
+            categorie, detail = classer_erreur(erreur)
+            cle = {
+                INJOIGNABLE: "check_websocket_unreachable",
+                MOT_DE_PASSE: "check_websocket_password",
+                INTERNE: "check_websocket_internal",
+            }.get(categorie, "check_websocket_internal")
+            messagebox.showerror(
+                textes["title"], textes[cle].format(error=detail), parent=fenetre
+            )
+        finally:
+            fermer_client(client)
 
     def reconnecter() -> None:
         nonlocal reconnexion_en_cours
@@ -1157,8 +1290,7 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
             obs_demarrage = False
         rapport_courant = construire_rapport(nouveaux, textes)
         reseau_var.set(textes["network_info"].format(**rapport_courant.reseau))
-        srt_nom_var.set(rapport_courant.reseau["srt_nom"])
-        srt_ip_var.set(rapport_courant.reseau["srt_ip"])
+        afficher_adresses_srt(rapport_courant.reseau["srt_adresses"])
         derniere_verification.set(
             textes["diagnostic_last_updated"].format(
                 time=datetime.now().astimezone().strftime("%d/%m/%Y %H:%M:%S")
@@ -1220,11 +1352,12 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
         etat_scan["en_cours"] = True
         etat_scan["manuelle"] = force
         if force:
+            connexion_obs.reinitialiser()
             statut_actions.set(textes["diagnostic_refreshing"])
 
         def travail() -> None:
             try:
-                etat_scan["faits"] = collecter_faits(repertoire)
+                etat_scan["faits"] = collecter_faits(repertoire, connexion_obs)
             except Exception:
                 etat_scan["faits"] = None
             etat_scan["en_cours"] = False
@@ -1254,7 +1387,10 @@ def _lancer_interface(textes: dict[str, str], rapport: Rapport, repertoire: Path
         fenetre.after(intervalle * 1000, programmer_actualisation)
 
     fenetre.after(4000, programmer_actualisation)
-    fenetre.mainloop()
+    try:
+        fenetre.mainloop()
+    finally:
+        connexion_obs.fermer()
 
 
 def main() -> int:

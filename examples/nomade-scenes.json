@@ -3,14 +3,14 @@
   "sources": [
     {"name": "G7 Principal", "kind": "v4l2_input", "settings": {"device": "/dev/video0"}, "enabled": true},
     {"name": "G7 Secours", "kind": "v4l2_input", "settings": {"device": "/dev/video1"}, "enabled": false},
-    {"name": "Xiaomi Arriere", "kind": "ffmpeg_source", "settings": {"input": "srt://:9001?mode=listener", "is_local_file": false}, "enabled": false},
-    {"name": "Xiaomi Selfie", "kind": "ffmpeg_source", "settings": {"input": "srt://:9001?mode=listener", "is_local_file": false}, "enabled": false},
+    {"name": "Xiaomi Arriere", "kind": "ffmpeg_source", "settings": {"input": "srt://:9001?mode=listener", "is_local_file": false, "close_when_inactive": true}, "enabled": false},
+    {"name": "Xiaomi Selfie", "kind": "ffmpeg_source", "settings": {"input": "srt://:9002?mode=listener", "is_local_file": false, "close_when_inactive": true}, "enabled": false},
     {"name": "Selfie", "kind": "color_source_v3", "settings": {"color": 4294967295, "width": 320, "height": 180}, "enabled": false},
-    {"name": "Carte", "kind": "text_ft2_source", "settings": {"from_file": true, "text_file": "{data_dir}/overlays/carte.txt", "font": {"face": "Sans Serif", "size": 36, "flags": 0, "style": ""}, "antialiasing": true, "color1": 4294967295, "color2": 4294967295}, "enabled": false},
-    {"name": "Vitesse", "kind": "text_ft2_source", "settings": {"from_file": true, "text_file": "{data_dir}/overlays/vitesse.txt", "font": {"face": "Sans Serif", "size": 36, "flags": 0, "style": ""}, "antialiasing": true, "color1": 4294967295, "color2": 4294967295}, "enabled": false},
-    {"name": "Pulsations", "kind": "text_ft2_source", "settings": {"from_file": true, "text_file": "{data_dir}/overlays/pulsations.txt", "font": {"face": "Sans Serif", "size": 36, "flags": 0, "style": ""}, "antialiasing": true, "color1": 4294967295, "color2": 4294967295}, "enabled": false},
-    {"name": "Meteo", "kind": "text_ft2_source", "settings": {"from_file": true, "text_file": "{data_dir}/overlays/meteo.txt", "font": {"face": "Sans Serif", "size": 36, "flags": 0, "style": ""}, "antialiasing": true, "color1": 4294967295, "color2": 4294967295}, "enabled": false},
-    {"name": "Guide Nomade", "scene": "Guide Nomade", "kind": "text_ft2_source", "settings": {"from_file": true, "text_file": "{data_dir}/overlays/guide.txt", "font": {"face": "Sans Serif", "size": 32, "flags": 0, "style": ""}, "antialiasing": true, "word_wrap": true, "custom_width": 1600, "color1": 4294967295, "color2": 4294967295}, "enabled": true},
+    {"name": "Carte", "kind": "text_ft2_source_v2", "settings": {"from_file": true, "text_file": "{data_dir}/overlays/carte.txt", "font": {"face": "Sans Serif", "size": 36, "flags": 0, "style": ""}, "antialiasing": true, "color1": 4294967295, "color2": 4294967295}, "enabled": false},
+    {"name": "Vitesse", "kind": "text_ft2_source_v2", "settings": {"from_file": true, "text_file": "{data_dir}/overlays/vitesse.txt", "font": {"face": "Sans Serif", "size": 36, "flags": 0, "style": ""}, "antialiasing": true, "color1": 4294967295, "color2": 4294967295}, "enabled": false},
+    {"name": "Pulsations", "kind": "text_ft2_source_v2", "settings": {"from_file": true, "text_file": "{data_dir}/overlays/pulsations.txt", "font": {"face": "Sans Serif", "size": 36, "flags": 0, "style": ""}, "antialiasing": true, "color1": 4294967295, "color2": 4294967295}, "enabled": false},
+    {"name": "Meteo", "kind": "text_ft2_source_v2", "settings": {"from_file": true, "text_file": "{data_dir}/overlays/meteo.txt", "font": {"face": "Sans Serif", "size": 36, "flags": 0, "style": ""}, "antialiasing": true, "color1": 4294967295, "color2": 4294967295}, "enabled": false},
+    {"name": "Guide Nomade", "scene": "Guide Nomade", "kind": "text_ft2_source_v2", "settings": {"from_file": true, "text_file": "{data_dir}/overlays/guide.txt", "font": {"face": "Sans Serif", "size": 32, "flags": 0, "style": ""}, "antialiasing": true, "word_wrap": true, "custom_width": 1600, "color1": 4294967295, "color2": 4294967295}, "enabled": true},
     {"name": "Heure", "kind": "color_source_v3", "settings": {"color": 4294967295, "width": 240, "height": 80}, "enabled": false},
     {"name": "Chat multicanal", "kind": "browser_source", "settings": {"url": "about:blank", "width": 640, "height": 720}, "enabled": false}
   ]

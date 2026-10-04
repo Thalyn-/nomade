@@ -20,8 +20,8 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Any
 
-from obsws_python import ReqClient
 from nomade_config import ErreurConfiguration, afficher_diagnostic, charger_configuration, url_chat_active
+from nomade_obs import creer_client
 from nomade_secrets import charger_secret_obs
 from nomade_utils import LANGUE_PAR_DEFAUT, charger_traductions, est_hote_obs_local
 
@@ -39,8 +39,7 @@ class ControleOBS:
 
     def __init__(self, cfg: ConfigurationOBS) -> None:
         self.cfg = cfg
-        parametres_connexion = {"password": cfg.mot_de_passe}
-        self.client = ReqClient(host=cfg.hote, port=cfg.port, timeout=3, **parametres_connexion)
+        self.client = creer_client(cfg.hote, cfg.port, cfg.mot_de_passe)
 
     def demarrer_diffusion(self) -> None:
         self.client.start_stream()
