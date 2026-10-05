@@ -13,7 +13,16 @@ SCRIPTS_DIR = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 from nomade_utils import charger_traductions
-from installer_scenes_obs import ajouter_modele, charger_modele, sauvegarder_collections
+from installer_scenes_obs import (
+    ajouter_modele,
+    charger_modele,
+    choisir_type,
+    formater_compte_rendu,
+    formater_erreur_import,
+    importer_modele,
+    preparer_affichages,
+    sauvegarder_collections,
+)
 from nomade_config import charger_configuration
 from primum_initium import (
     calculer_modifications,
@@ -27,6 +36,7 @@ from primum_initium import (
     construire_adresses_srt,
     marquer_premier_lancement_obs,
     reconnecter_wifi,
+    ecarts_ports_srt,
     reseaux_detectes,
 )
 
@@ -91,6 +101,55 @@ class PrimumInitiumTests(unittest.TestCase):
         self.assertEqual(rapport.reseau["srt_nom"], "srt://dietpi.local:9001?mode=caller")
         self.assertEqual(rapport.reseau["srt_ip"], "srt://10.0.0.2:9001?mode=caller")
         self.assertEqual(rapport.reseau["telephone"], "10.0.0.5")
+
+    def test_rapport_affiche_une_adresse_srt_par_source(self) -> None:
+        faits = dict(self.faits)
+        faits["sources_srt"] = [
+            {"nom": "Xiaomi Arriere", "label": "Arrière", "port": 9001},
+            {"nom": "Xiaomi Selfie", "label": "Selfie", "port": 9002},
+        ]
+        faits["ports_srt"] = [9001, 9002]
+        faits["ports_srt_ecoute"] = [9001]
+        rapport = construire_rapport(faits, self.textes)
+
+        adresses = rapport.reseau["srt_adresses"]
+        self.assertEqual([a["port"] for a in adresses], [9001, 9002])
+        self.assertEqual(adresses[1]["nom"], "srt://dietpi.local:9002?mode=caller")
+        self.assertEqual(adresses[1]["ip"], "srt://10.0.0.2:9002?mode=caller")
+        srt = next(ligne for ligne in rapport.verifications if ligne.cle == "srt")
+        self.assertEqual(srt.etat, "ok")
+
+    def test_ecarts_de_port_srt_sont_signales(self) -> None:
+        sources = [
+            {"nom": "A", "label": "A", "port": 9001},
+            {"nom": "B", "label": "B", "port": 9001},
+            {"nom": "C", "label": "C", "port": 9003},
+        ]
+        ecarts = ecarts_ports_srt(sources, {"A": "srt://:9001?mode=listener", "C": "srt://:9002?mode=listener"})
+        self.assertEqual(len(ecarts), 2)
+        self.assertTrue(any("B / A" in e for e in ecarts))
+        self.assertTrue(any("C : 9003 / 9002" in e for e in ecarts))
+        self.assertEqual(ecarts_ports_srt(sources[:1], {"A": "srt://:9001?mode=listener"}), [])
+
+        faits = dict(self.faits)
+        faits["ecarts_srt"] = ecarts
+        ligne = next(l for l in construire_rapport(faits, self.textes).verifications if l.cle == "srt_ports")
+        self.assertEqual(ligne.etat, "alerte")
+
+    def test_rapport_distingue_les_erreurs_websocket(self) -> None:
+        for etat, mot in (
+            ("mot_de_passe", "Mot de passe"),
+            ("indisponible", "injoignable"),
+            ("erreur", "interne"),
+        ):
+            faits = dict(self.faits, websocket=etat, websocket_erreur="TypeError: détail exact")
+            ligne = next(
+                l for l in construire_rapport(faits, self.textes).verifications if l.cle == "websocket"
+            )
+            self.assertEqual(ligne.etat, "erreur")
+            self.assertIn(mot, ligne.message)
+        self.assertIn("TypeError: détail exact", ligne.message)
+
 
     def test_construit_les_deux_adresses_srt_sans_nom_dhote_en_dur(self) -> None:
         self.assertEqual(
@@ -282,8 +341,17 @@ class PrimumInitiumTests(unittest.TestCase):
         self.assertTrue(all(source["obs_source_name"] in noms for source in configuration["video_sources"]))
         sources_srt = [source for source in modele["sources"] if source["kind"] == "ffmpeg_source"]
         self.assertTrue(sources_srt)
-        self.assertTrue(all(source["settings"]["input"] == "srt://:9001?mode=listener" for source in sources_srt))
-        sources_texte = [source for source in modele["sources"] if source["kind"] == "text_ft2_source"]
+        ports_modele = {
+            source["name"]: int(source["settings"]["input"].split(":")[2].split("?")[0])
+            for source in sources_srt
+        }
+        self.assertEqual(len(set(ports_modele.values())), len(ports_modele))
+        self.assertNotIn(4455, ports_modele.values())
+        for source in configuration["video_sources"]:
+            if source["type"] == "srt":
+                self.assertEqual(ports_modele[source["obs_source_name"]], source["srt_port"])
+        self.assertEqual(ports_modele["Xiaomi Arriere"], 9001)
+        sources_texte = [source for source in modele["sources"] if source["kind"] == "text_ft2_source_v2"]
         self.assertTrue(sources_texte)
         self.assertTrue(all("/tmp/nomade-data/overlays/" in source["settings"]["text_file"] for source in sources_texte))
         self.assertIn("Guide Nomade", modele["scenes"])
@@ -365,6 +433,145 @@ class PrimumInitiumTests(unittest.TestCase):
     def test_sauvegarde_des_collections_accepte_un_dossier_vide(self) -> None:
         with tempfile.TemporaryDirectory() as dossier:
             self.assertEqual(sauvegarder_collections(Path(dossier)), [])
+
+
+class ClientObsFactice:
+    """Faux OBS : types disponibles configurables, échecs par source."""
+
+    def __init__(self, types=None, echecs=None, scenes=None, sources=None, elements=None) -> None:
+        self.types = types
+        self.echecs = echecs or {}
+        self.scenes = [{"sceneName": nom} for nom in (scenes or [])]
+        self.sources = [{"inputName": nom} for nom in (sources or [])]
+        self.elements = elements or {}
+        self.creations: list[dict] = []
+        self.requetes: list[tuple[str, dict]] = []
+
+    def get_scene_list(self):
+        return type("R", (), {"scenes": self.scenes})()
+
+    def get_input_list(self):
+        return type("R", (), {"inputs": self.sources})()
+
+    def get_input_kind_list(self, unversioned):
+        if self.types is None:
+            raise AttributeError("indisponible")
+        return type("R", (), {"input_kinds": self.types})()
+
+    def get_scene_item_list(self, scene_name):
+        return type("R", (), {"scene_items": [
+            {"sourceName": nom} for nom in self.elements.get(scene_name, [])
+        ]})()
+
+    def send(self, requete, donnees):
+        self.requetes.append((requete, donnees))
+        if requete == "CreateScene":
+            self.scenes.append({"sceneName": donnees["sceneName"]})
+        elif requete == "CreateInput":
+            echec = self.echecs.get(donnees["inputName"])
+            if echec:
+                raise echec
+            self.sources.append({"inputName": donnees["inputName"]})
+            self.creations.append(donnees)
+        elif requete == "CreateSceneItem":
+            self.elements.setdefault(donnees["sceneName"], []).append(donnees["sourceName"])
+
+
+class ErreurObs(Exception):
+    def __init__(self, code: int) -> None:
+        super().__init__(f"Request CreateInput returned code {code}. With message: kind not supported")
+        self.code = code
+
+
+class ImportScenesTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.textes = charger_traductions("fr", ROOT / "locales")
+
+    @staticmethod
+    def source(nom: str, kind: str = "text_ft2_source_v2") -> dict:
+        return {"name": nom, "kind": kind, "settings": {"from_file": True, "text_file": "/x"}, "enabled": False}
+
+    def test_type_absent_utilise_le_repli(self) -> None:
+        client = ClientObsFactice(types=["text_ft2_source", "v4l2_input"])
+        compte_rendu = importer_modele(client, {"scenes": ["S"], "sources": [self.source("Carte")]})
+
+        self.assertEqual(client.creations[0]["inputKind"], "text_ft2_source")
+        self.assertEqual(compte_rendu.creees, ["Carte"])
+        self.assertEqual(compte_rendu.remplacements, {"Carte": "text_ft2_source"})
+        self.assertEqual(compte_rendu.ignorees, [])
+
+    def test_type_par_defaut_prefere_quand_disponible(self) -> None:
+        self.assertEqual(choisir_type("text_ft2_source_v2", ["text_ft2_source", "text_ft2_source_v2"]), "text_ft2_source_v2")
+        self.assertEqual(choisir_type("ffmpeg_source", None), "ffmpeg_source")
+
+    def test_type_absent_sans_repli_ignore_la_source_et_continue(self) -> None:
+        client = ClientObsFactice(types=["color_source_v3"])
+        modele = {"scenes": ["S"], "sources": [
+            self.source("Chat", "browser_source"), self.source("Selfie", "color_source_v3"),
+        ]}
+        compte_rendu = importer_modele(client, modele)
+
+        self.assertEqual(compte_rendu.creees, ["Selfie"])
+        self.assertEqual([(s.nom, s.type_demande) for s in compte_rendu.ignorees], [("Chat", "browser_source")])
+        rapport = formater_compte_rendu(compte_rendu, self.textes)
+        self.assertIn("Chat", rapport)
+        self.assertIn("browser_source", rapport)
+        self.assertIn("1 ignorée", rapport)
+
+    def test_echec_de_creation_n_arrete_pas_l_import(self) -> None:
+        client = ClientObsFactice(types=None, echecs={"Carte": ErreurObs(605)})
+        modele = {"scenes": ["S"], "sources": [self.source("Carte"), self.source("Vitesse")]}
+        compte_rendu = importer_modele(client, modele)
+
+        self.assertEqual(compte_rendu.creees, ["Vitesse"])
+        self.assertEqual(compte_rendu.ignorees[0].code, 605)
+        rapport = formater_compte_rendu(compte_rendu, self.textes)
+        self.assertIn("605", rapport)
+        self.assertIn("type de source non pris en charge", rapport)
+
+    def test_reprise_apres_echec_partiel_sans_doublon(self) -> None:
+        client = ClientObsFactice(echecs={"Carte": ErreurObs(605)})
+        modele = {"scenes": ["S"], "sources": [self.source("Carte"), self.source("Vitesse")]}
+        importer_modele(client, modele)
+        client.echecs = {}
+
+        compte_rendu = importer_modele(client, modele)
+
+        self.assertEqual(compte_rendu.creees, ["Carte"])
+        self.assertEqual(compte_rendu.presentes, ["Vitesse"])
+        self.assertEqual([c["inputName"] for c in client.creations], ["Vitesse", "Carte"])
+        self.assertEqual([r for r in client.requetes if r[0] == "CreateScene"], [("CreateScene", {"sceneName": "S"})])
+
+    def test_source_existante_est_rattachee_a_la_scene_voulue(self) -> None:
+        client = ClientObsFactice(sources=["Guide"], scenes=["S", "Guide Nomade"], elements={"Guide Nomade": []})
+        source = dict(self.source("Guide"), scene="Guide Nomade")
+        compte_rendu = importer_modele(client, {"scenes": ["S", "Guide Nomade"], "sources": [source]})
+
+        self.assertEqual(compte_rendu.rattachees, ["Guide"])
+        self.assertEqual(client.elements["Guide Nomade"], ["Guide"])
+        self.assertEqual(client.creations, [])
+        self.assertEqual(importer_modele(client, {"scenes": ["S", "Guide Nomade"], "sources": [source]}).rattachees, [])
+
+    def test_erreur_de_connexion_interrompt_l_import_avec_consigne_websocket(self) -> None:
+        class Coupe(ClientObsFactice):
+            def send(self, requete, donnees):
+                raise ConnectionRefusedError("refused")
+
+        with self.assertRaises(ConnectionRefusedError) as contexte:
+            importer_modele(Coupe(), {"scenes": ["S"], "sources": []})
+        self.assertIn("127.0.0.1:4455", formater_erreur_import(contexte.exception, self.textes))
+        message = formater_erreur_import(TypeError("boom"), self.textes)
+        self.assertNotIn("127.0.0.1:4455", message)
+        self.assertIn("TypeError", message)
+
+    def test_fichiers_d_exemple_des_affichages_sont_crees_sans_ecraser(self) -> None:
+        with tempfile.TemporaryDirectory() as dossier:
+            self.assertIsNone(preparer_affichages(Path(dossier), self.textes))
+            vitesse = Path(dossier) / "overlays" / "vitesse.txt"
+            self.assertTrue(vitesse.is_file())
+            vitesse.write_text("42 km/h\n", encoding="utf-8")
+            preparer_affichages(Path(dossier), self.textes)
+            self.assertEqual(vitesse.read_text(encoding="utf-8"), "42 km/h\n")
 
 
 if __name__ == "__main__":

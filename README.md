@@ -72,7 +72,7 @@ ping -c 3 deb.debian.org
 
 Commencez par `sudo systemctl restart networking` : c'est la relance qui a rétabli le Wi-Fi lors du test réel. Cette commande peut couper brièvement les connexions. Si `rfkill` est introuvable, passez cette étape sans bloquer le dépannage ; vous pouvez l'installer avec `sudo apt install rfkill`, puis réessayer. Les commandes `wpa_cli`, `ifdown` et `ifup` peuvent elles aussi être absentes selon l'installation.
 
-Enfin, ne confondez pas les deux flux : SRT transporte la vidéo en **UDP**, sur le port `9001` par défaut ; le contrôle obs-websocket utilise **TCP**, sur `127.0.0.1:4455`. Ces ports et protocoles sont indépendants.
+Enfin, ne confondez pas les deux flux : SRT transporte la vidéo en **UDP**, sur le port `9001` par défaut pour la première source (une source par port : `9002`, etc.) ; le contrôle obs-websocket utilise **TCP**, sur `127.0.0.1:4455`. Ces ports et protocoles sont indépendants.
 
 ## Objectif
 
@@ -92,7 +92,7 @@ Cette durée suppose que DietPi, le bureau LXDE et le dépôt sont déjà instal
 2. Depuis le dépôt, lancez `sudo ./scripts/install_nomade.sh`. Le script installe les dépendances, OBS avec sa Source Navigateur, puis ouvre l'assistant de premier démarrage (ou affiche son diagnostic dans le terminal).
 3. Dans PrimumInitium, suivez le grand bouton **Étape suivante**. Il guide le réseau, l'installation, le confort tactile, OBS, les scènes, les informations locales et les clés de diffusion. **Mode avancé** conserve les commandes et le bilan détaillé.
 4. Configurez obs-websocket sur `127.0.0.1:4455` et importez le modèle Nomade lorsque l'assistant le propose. Adaptez ensuite les sources à votre matériel.
-5. Dans Larix, essayez l'adresse SRT `.local` affichée par l'assistant ; si le téléphone ne résout pas ce nom, copiez l'adresse IP affichée à côté. SRT utilise le port UDP `9001`.
+5. Dans Larix, essayez l'adresse SRT `.local` affichée par l'assistant ; si le téléphone ne résout pas ce nom, copiez l'adresse IP affichée à côté. Chaque caméra du téléphone utilise son propre port UDP (`9001` pour la caméra arrière, `9002` pour la caméra selfie) : configurez-en une ou deux dans Larix selon vos besoins.
 6. Une fois une plateforme configurée, sélectionnez-la dans Emissio et lancez le direct. OBS utilise alors son profil dédié.
 
 Les préréglages Nomade ne font qu'activer ou désactiver des **sources et scènes déjà créées** : ils n'en créent aucune. L'import du modèle OBS depuis le parcours guidé ou `./scripts/installer_scenes_obs.sh` est donc indispensable.
@@ -195,11 +195,19 @@ PrimumInitium demande des droits avec `pkexec` uniquement après confirmation po
 
 Les messages VAAPI « Failed to initialize display » ou « H264 encoding not supported » affichés dans la console d'OBS sont informatifs et normaux sur Raspberry Pi 4 : cette machine ne fournit pas VAAPI.
 
+Les messages `WebSocket client ... has disconnected with code 1006 and reason: End of File` de la console d'OBS sont eux aussi informatifs si le WebSocket fonctionne par ailleurs : ils correspondent à des fermetures de connexion. L'assistant garde désormais une seule connexion persistante (reconnexion automatique avec délai croissant, fermeture propre à la sortie) ; une connexion éphémère n'est ouverte que pour un test ponctuel ou un import. L'intervalle d'actualisation du bilan se règle avec la variable `NOMADE_DIAGNOSTIC_INTERVALLE` (en secondes, de 3 à 60, 4 par défaut) ; les sondages s'exécutent hors du fil de l'interface.
+
 ## 6. Dépannage express
 
 ### Connexion obs-websocket refusée
 
 Vérifiez qu'OBS est ouvert, que son serveur WebSocket est activé, qu'il écoute sur **`127.0.0.1`**, au port **`4455`**, et que le mot de passe est exactement celui de `OBS_MDP`. Relancez ensuite `./scripts/primum_initium.sh --diagnostic`. N'exposez jamais ce serveur sur `0.0.0.0` ou le réseau du téléphone.
+
+Le bilan distingue trois cas : **OBS injoignable** (connexion refusée ou expirée), **mot de passe incorrect** et **erreur interne inattendue** (type et message exact affichés, jamais le mot de passe). À l'étape WebSocket, l'assistant propose un champ « mot de passe OBS » : il l'enregistre dans `config/nomade.secrets` (droits `600`, hors Git) et teste aussitôt la connexion. Ce fichier est aussi chargé au démarrage de l'assistant et de l'import des scènes.
+
+### Import des scènes : erreur 605 (« input kind not supported »)
+
+Sous Linux, depuis OBS 28, le texte FreeType2 s'appelle `text_ft2_source_v2`. À l'import, Nomade interroge OBS (`GetInputKindList`) et choisit le type réellement disponible selon cette table de repli : `text_ft2_source_v2` → `text_ft2_source` → `text_gdiplus_v3` → `text_gdiplus_v2` → `text_gdiplus` (texte) ; `color_source_v3` → `color_source_v2` → `color_source` (couleur). Les autres types du modèle (`v4l2_input`, `ffmpeg_source`, `browser_source`) n'ont pas d'alternative. Une source dont le type est introuvable ou dont la création échoue est **ignorée** sans bloquer l'import ; le compte rendu final indique les sources créées, déjà présentes et ignorées (nom, type demandé, code OBS et cause). L'import peut être relancé sans doublon : les sources existantes ne sont pas recréées et sont rattachées à leur scène si besoin. Les fichiers d'exemple `{data_dir}/overlays/*.txt` sont créés s'ils manquent. Si un type reste non reconnu, communiquez la sortie de `GetInputKindList`.
 
 ### Wi-Fi instable
 
@@ -233,7 +241,7 @@ Avant de modifier cette configuration système, faites une copie de sauvegarde, 
 
 ### SRT ne reçoit rien
 
-SRT transporte la vidéo en **UDP** ; obs-websocket contrôle OBS en **TCP** sur `127.0.0.1:4455`. Dans OBS, utilisez `srt://:9001?mode=listener` (sans IP avant les deux-points) ; dans Larix, utilisez `srt://<ADRESSE_DU_RASPBERRY>:9001?mode=caller`. Ne réutilisez jamais un port déjà occupé. Vérifiez l'aperçu de la source OBS et désactivez l'aperçu du téléphone si celui-ci chauffe.
+SRT transporte la vidéo en **UDP** ; obs-websocket contrôle OBS en **TCP** sur `127.0.0.1:4455`. Dans OBS, utilisez `srt://:9001?mode=listener` (sans IP avant les deux-points) ; dans Larix, utilisez `srt://<ADRESSE_DU_RASPBERRY>:9001?mode=caller`. Chaque source SRT a son propre port (jamais le même pour deux sources) et ne réutilisez jamais un port déjà occupé, ni `4455/TCP` (obs-websocket). Le message « Another socket is already listening on the same port » signale deux sources sur le même port. Vérifiez l'aperçu de la source OBS et désactivez l'aperçu du téléphone si celui-ci chauffe.
 
 Une adresse 5G dynamique n'empêche pas SRT de fonctionner. Utilisez l'adresse `.local` ou l'IP courante affichée par l'assistant ; privilégiez l'IP si le téléphone ne résout pas mDNS.
 
@@ -355,7 +363,7 @@ La configuration accepte désormais une liste `[[video_sources]]` :
 - `obs_source_name` : nom exact de la source dans OBS ;
 - `group` : groupe fonctionnel exclusif ;
 - `enabled_by_default` : état initial ;
-- `srt_port` : optionnel (informatif) pour les sources `srt`.
+- `srt_port` : optionnel pour les sources `srt` (9001 par défaut) ; un port distinct par source, cohérent avec l'URL de la source OBS (le bilan signale tout écart).
 
 Les sources d'un même `group` sont mutuellement exclusives dans l'interface : sélectionner une source désactive automatiquement les autres du même groupe dans OBS.
 
@@ -370,9 +378,15 @@ Nomade ne décode pas lui-même les flux SRT : OBS reste le moteur vidéo unique
 
 Pour une source SRT (ex. Larix Broadcaster sur Xiaomi), configurez côté OBS une **Source Média** en écoute :
 
-`srt://:9001?mode=listener`
+`srt://:9001?mode=listener` (caméra arrière) et `srt://:9002?mode=listener` (caméra selfie)
 
-Le flux arrive en **UDP**, port `9001`. Côté téléphone, Larix Broadcaster émet en mode caller vers l'une des deux adresses copiables du bilan : `srt://<nom-hôte>.local:9001?mode=caller` ou `srt://<IP-courante>:9001?mode=caller`. Si le nom ne fonctionne pas sur le téléphone, utilisez l'adresse avec les chiffres. Ne codez pas en dur une IP dynamique ; n'utilisez pas le port s'il est déjà pris.
+Chaque source écoute sur son propre port **UDP** : `9001` pour la première (par défaut inchangé), `9002` pour la seconde, etc. Le port de chaque source doit être identique dans `srt_port` (`config/nomade.toml`) et dans l'adresse de la source OBS ; le bilan signale tout écart ou doublon. Les sources du modèle sont créées avec l'option « Fermer le fichier quand inactif » : une source désactivée n'ouvre pas son port et ne génère pas de boucle d'erreur. Le diagnostic « écoute SRT » tient compte de plusieurs ports et ne déclare pas d'échec pour une source volontairement inactive.
+
+Les deux caméras d'un même téléphone ne peuvent pas toujours émettre en même temps : selon l'application (Larix, IP Webcam) et selon le téléphone ou la marque, c'est possible ou non. Avec un port par caméra, c'est possible quand le téléphone le permet ; sinon, on bascule de l'une à l'autre sans conflit.
+
+Le bilan et l'assistant affichent une adresse SRT par source (nom `.local` et adresse IP), avec des boutons « Copier ».
+
+Côté téléphone, Larix Broadcaster émet en mode caller vers l'une des deux adresses copiables du bilan (une paire par source) : `srt://<nom-hôte>.local:9001?mode=caller` ou `srt://<IP-courante>:9001?mode=caller`. Si le nom ne fonctionne pas sur le téléphone, utilisez l'adresse avec les chiffres. Ne codez pas en dur une IP dynamique ; n'utilisez pas le port s'il est déjà pris.
 
 Le contrôle `obs-websocket` est différent : il reste en **TCP**, sur `127.0.0.1:4455`, et ne doit jamais être exposé sur le réseau.
 
@@ -525,7 +539,7 @@ Les noms restent modifiables par arguments si besoin :
 - météo : `Meteo`
 - heure : `Heure`
 
-Le fichier `examples/nomade-scenes.json` décrit le modèle utilisé par `./scripts/installer_scenes_obs.sh`. OBS doit être ouvert avec son WebSocket actif sur la boucle locale ; exportez `OBS_MDP` avant l'import. Le script sauvegarde les collections OBS présentes, demande confirmation, crée les scènes/sources absentes et ne remplace aucun nom existant. Les entrées caméra, overlays et téléphone sont des modèles à adapter à votre matériel ; pour plusieurs réceptions SRT simultanées, attribuez un port distinct à chaque source et mettez à jour `srt_port`.
+Le fichier `examples/nomade-scenes.json` décrit le modèle utilisé par `./scripts/installer_scenes_obs.sh`. OBS doit être ouvert avec son WebSocket actif sur la boucle locale ; exportez `OBS_MDP` avant l'import. Le script sauvegarde les collections OBS présentes, demande confirmation, crée les scènes/sources absentes et ne remplace aucun nom existant. Les entrées caméra, overlays et téléphone sont des modèles à adapter à votre matériel ; chaque source SRT du modèle a déjà son propre port (9001, 9002) ; si vous en ajoutez, attribuez-lui un port distinct et mettez à jour `srt_port`. Les types de source sont choisis selon ce que votre OBS propose (voir le dépannage « erreur 605 »).
 
 ## Capteurs via MQTT sur liaison Bluetooth
 
