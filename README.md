@@ -15,6 +15,17 @@ Vous y trouverez :
 - le plan de versions (v0.2 à v1.0) ;
 - les priorités en cours.
 
+
+## Mini changelog
+
+### 2026-10-25
+- Ajout d’un assistant de démarrage guidé (diagnostic réseau, OBS, SRT, périphériques).
+- Amélioration de la robustesse WebSocket OBS et des messages d’erreur utilisateur.
+- Ajout/renforcement de l’import de scènes OBS par défaut (avec sauvegarde et comportement idempotent).
+- Clarification de la logique SRT (ports dédiés, éviter les conflits) et du dépannage réseau.
+- Publication de la feuille de route produit : [docs/FEUILLE_DE_ROUTE.md](docs/FEUILLE_DE_ROUTE.md).
+
+
 ## Avant de commencer : une connexion internet stable
 
 Internet est nécessaire pour télécharger DietPi, récupérer ce dépôt et installer les paquets. Une box reliée en Ethernet est la solution la plus simple. À défaut, un partage de connexion Wi-Fi de téléphone fonctionne, mais son adresse IP et sa passerelle peuvent changer : laissez le Raspberry en DHCP.
