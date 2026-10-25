@@ -17,8 +17,6 @@ Vous y trouverez :
 
 
 ## Mini changelog
-## Versions
-Le suivi des versions est disponible dans : [CHANGELOG.md](CHANGELOG.md)
 
 ### 2026-10-25
 - Ajout d’un assistant de démarrage guidé (diagnostic réseau, OBS, SRT, périphériques).
@@ -26,6 +24,9 @@ Le suivi des versions est disponible dans : [CHANGELOG.md](CHANGELOG.md)
 - Ajout/renforcement de l’import de scènes OBS par défaut (avec sauvegarde et comportement idempotent).
 - Clarification de la logique SRT (ports dédiés, éviter les conflits) et du dépannage réseau.
 - Publication de la feuille de route produit : [docs/FEUILLE_DE_ROUTE.md](docs/FEUILLE_DE_ROUTE.md).
+
+## Versions
+Le suivi des versions est disponible dans : [CHANGELOG.md](CHANGELOG.md)
 
 
 ## Avant de commencer : une connexion internet stable
