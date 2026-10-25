@@ -17,6 +17,8 @@ Vous y trouverez :
 
 
 ## Mini changelog
+## Versions
+Le suivi des versions est disponible dans : [CHANGELOG.md](CHANGELOG.md)
 
 ### 2026-10-25
 - Ajout d’un assistant de démarrage guidé (diagnostic réseau, OBS, SRT, périphériques).
