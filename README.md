@@ -2,6 +2,19 @@
 
 Solution locale de diffusion en direct pour Raspberry Pi 4B sous DietPi Bookworm, pensée pour un direct nomade avec OBS Studio, un téléphone Xiaomi 11T et une liaison capteurs la plus indépendante possible du réseau mobile utilisé pour la diffusion.
 
+## État du projet et feuille de route
+
+Nomade est en évolution active.  
+La priorité actuelle est la **fiabilité** et la **simplicité d’usage** sur Raspberry Pi (installation, réseau, OBS, pilotage tactile).
+
+👉 Consultez la feuille de route : [docs/FEUILLE_DE_ROUTE.md](docs/FEUILLE_DE_ROUTE.md)
+
+Vous y trouverez :
+- le périmètre MVP ;
+- les fonctions reportées ;
+- le plan de versions (v0.2 à v1.0) ;
+- les priorités en cours.
+
 ## Avant de commencer : une connexion internet stable
 
 Internet est nécessaire pour télécharger DietPi, récupérer ce dépôt et installer les paquets. Une box reliée en Ethernet est la solution la plus simple. À défaut, un partage de connexion Wi-Fi de téléphone fonctionne, mais son adresse IP et sa passerelle peuvent changer : laissez le Raspberry en DHCP.
